@@ -87,6 +87,7 @@ export default function MessagesPage() {
     const [serviceRequest, setServiceRequest] = useState<ServiceRequest | null>(null)
     // booking flow removed
     const [openReceiptModal, setOpenReceiptModal] = useState(false)
+    const [editingReceipt, setEditingReceipt] = useState(false)
     const [receiptItems, setReceiptItems] = useState<Array<{ desc: string; qty: number; unit_price: number }>>([{ desc: '', qty: 1, unit_price: 0 }])
     const [receiptNotes, setReceiptNotes] = useState('')
     const [feeComplexity, setFeeComplexity] = useState<'simple' | 'standard' | 'complex'>('standard')
@@ -318,70 +319,36 @@ export default function MessagesPage() {
                                             </h2>
                                         </div>
                                         <div className="flex flex-col items-stretch gap-2 md:flex-row md:items-center md:gap-3">
-                                            {/* Allow technicians to generate a receipt when no SR exists */}
-                                            {isTechnician && active.technician_id && !serviceRequest && (
-                                                <Button 
-                                                    onClick={() => setOpenReceiptModal(true)}
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="whitespace-nowrap"
-                                                >
-                                                    Generate Receipt
-                                                </Button>
-                                            )}
-                                            {serviceRequest && (
-                                                <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-                                                    {(serviceRequest.receipt_items && serviceRequest.receipt_items.length > 0) && (
+                                            {isTechnician && active.technician_id && (
+                                                (!serviceRequest || !(serviceRequest.receipt_items && serviceRequest.receipt_items.length > 0)) ? (
                                                     <Button 
-                                                        onClick={() => setOpenViewReceipt(true)} 
-                                                        className="bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap h-9 px-5 md:px-6 min-w-[130px]"
+                                                        onClick={() => {
+                                                            setEditingReceipt(false)
+                                                            setReceiptItems([{ desc: '', qty: 1, unit_price: 0 }])
+                                                            setReceiptNotes('')
+                                                            setOpenReceiptModal(true)
+                                                        }}
+                                                        size="sm"
+                                                        className="whitespace-nowrap"
                                                     >
-                                                            View receipt
-                                                        </Button>
-                                                    )}
-                                                    <div className="flex items-center gap-2">
-                                                        {isTechnician && (
-                                                            <>
-                                                                <input
-                                                                    id={`header-receipt-upload-${serviceRequest.id}`}
-                                                                    type="file"
-                                                                    multiple
-                                                                    accept=".jpg,.jpeg,.png,.pdf"
-                                                                    style={{ display: 'none' }}
-                                                                    onChange={async (e) => {
-                                                                        const files = (e.currentTarget as HTMLInputElement).files
-                                                                        if (!files || files.length === 0) return
-                                                                        const form = new FormData()
-                                                                        Array.from(files).slice(0,5).forEach(f => form.append('files[]', f))
-                                                                        try {
-                                                                            await axios.post(`/api/service-requests/${serviceRequest.id}/receipts`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
-                                                                            const r = await axios.get(`/api/conversations/${active?.id}/service-requests`)
-                                                                            const requests: ServiceRequest[] = r.data
-                                                                            if (requests.length > 0) {
-                                                                                const activeRequest = requests.find(sr => ['pending', 'confirmed', 'in_progress', 'completed'].includes(sr.status)) || requests[0]
-                                                                                setServiceRequest(activeRequest)
-                                                                            }
-                                                                        } catch {
-                                                                            alert('Failed to upload receipt(s)')
-                                                                        } finally {
-                                                                            (e.currentTarget as HTMLInputElement).value = ''
-                                                                        }
-                                                                    }}
-                                                                />
-                                                                <Button
-                                                                    className="bg-emerald-600 text-white hover:bg-emerald-700 whitespace-nowrap h-9 px-5 md:px-6 min-w-[140px]"
-                                                                    onClick={() => document.getElementById(`header-receipt-upload-${serviceRequest.id}`)?.click()}
-                                                                >
-                                                                    Upload receipt
-                                                                </Button>
-                                                            </>
-                                                        )}
-                                                        {/* Mark complete is admin-only; show a disabled hint here for clarity */}
-                                                        <Button size="sm" variant="outline" disabled className="whitespace-nowrap">
-                                                            Mark as Completed (admin)
-                                                        </Button>
-                                                    </div>
-                                                </div>
+                                                        Generate Receipt
+                                                    </Button>
+                                                ) : (
+                                                    <Button 
+                                                        onClick={() => {
+                                                            setEditingReceipt(true)
+                                                            // Prefill from existing receipt
+                                                            const items = serviceRequest?.receipt_items ?? [{ desc: '', qty: 1, unit_price: 0 }]
+                                                            setReceiptItems(items.map(i => ({ desc: i.desc, qty: Number(i.qty||0), unit_price: Number(i.unit_price||0) })))
+                                                            setReceiptNotes(serviceRequest?.receipt_notes ?? '')
+                                                            setOpenReceiptModal(true)
+                                                        }}
+                                                        size="sm"
+                                                        className="whitespace-nowrap"
+                                                    >
+                                                        Edit Receipt
+                                                    </Button>
+                                                )
                                             )}
                                         </div>
                                     </div>
@@ -568,11 +535,14 @@ export default function MessagesPage() {
             </div>
         </AppLayout>
 
-        <Dialog open={openReceiptModal} onOpenChange={setOpenReceiptModal}>
+        <Dialog open={openReceiptModal} onOpenChange={(open) => {
+            if (!open) setEditingReceipt(false)
+            setOpenReceiptModal(open)
+        }}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Generate Receipt</DialogTitle>
-                    <DialogDescription>Fill in items and booking fee, then create the receipt.</DialogDescription>
+                    <DialogTitle>{editingReceipt ? 'Edit Receipt' : 'Generate Receipt'}</DialogTitle>
+                    <DialogDescription>{editingReceipt ? 'Update existing receipt items and notes.' : 'Fill in items and booking fee, then create the receipt.'}</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                     <div className="grid grid-cols-12 gap-2 text-sm font-medium text-neutral-500">
@@ -589,10 +559,17 @@ export default function MessagesPage() {
                                 const arr = [...receiptItems]; arr[idx] = { ...arr[idx], qty: Number(e.target.value) }; setReceiptItems(arr)
                             }} />
                             <div className="col-span-3 flex items-center gap-2">
-                                <Input className="w-1/2" type="number" min={0} value={it.unit_price} onChange={(e) => {
-                                const arr = [...receiptItems]; arr[idx] = { ...arr[idx], unit_price: Number(e.target.value) }; setReceiptItems(arr)
-                                }} />
-                                <div className="w-1/2 text-right text-xs text-muted-foreground">
+                                <Input
+                                    className="w-2/3"
+                                    type="number"
+                                    min={0}
+                                    value={it.unit_price === 0 ? '' : it.unit_price}
+                                    onChange={(e) => {
+                                        const next = e.target.value === '' ? 0 : Number(e.target.value)
+                                        const arr = [...receiptItems]; arr[idx] = { ...arr[idx], unit_price: next }; setReceiptItems(arr)
+                                    }}
+                                />
+                                <div className="w-1/3 text-right text-xs text-muted-foreground">
                                     ₱{(Number(it.qty || 0) * Number(it.unit_price || 0)).toFixed(2)}
                                 </div>
                             </div>
@@ -629,20 +606,31 @@ export default function MessagesPage() {
                         if (total <= 0) { alert('Total must be greater than 0'); return }
                         if (receiptItems.some(it => !it.desc.trim())) { alert('Every item needs a description'); return }
                         try {
-                            const res = await axios.post('/api/service-requests', {
-                                conversation_id: active.id,
-                                receipt_items: receiptItems,
-                                receipt_total: total,
-                                receipt_notes: receiptNotes || undefined,
-                                booking_fee_complexity: feeComplexity,
-                                rate_tier: selectedRate || undefined,
-                            })
-                            setServiceRequest(res.data.service_request)
+                            if (editingReceipt && serviceRequest) {
+                                const res = await axios.patch(`/api/service-requests/${serviceRequest.id}/receipt`, {
+                                    receipt_items: receiptItems,
+                                    receipt_total: total,
+                                    receipt_notes: receiptNotes || undefined,
+                                })
+                                setServiceRequest(res.data.service_request)
+                                // announce update
+                                await axios.post(`/api/conversations/${active.id}/messages`, { body: `Receipt updated • New total ₱${total.toFixed(2)}` })
+                            } else {
+                                const res = await axios.post('/api/service-requests', {
+                                    conversation_id: active.id,
+                                    receipt_items: receiptItems,
+                                    receipt_total: total,
+                                    receipt_notes: receiptNotes || undefined,
+                                    booking_fee_complexity: feeComplexity,
+                                    rate_tier: selectedRate || undefined,
+                                })
+                                setServiceRequest(res.data.service_request)
+                                // announce creation
+                                await axios.post(`/api/conversations/${active.id}/messages`, { body: `🧾 Receipt generated • Total ₱${total.toFixed(2)} • Booking fee: ${feeComplexity}` })
+                            }
                             setOpenReceiptModal(false)
                             setReceiptItems([{ desc: '', qty: 1, unit_price: 0 }])
                             setReceiptNotes('')
-                            // announce in chat
-                            await axios.post(`/api/conversations/${active.id}/messages`, { body: `🧾 Receipt generated • Total ₱${total.toFixed(2)} • Booking fee: ${feeComplexity}` })
                             axios.get(`/api/conversations/${active.id}/messages`).then(r => setMessages(r.data))
                         } catch (error) {
                             const err = error as { response?: { data?: { message?: string } } }
@@ -650,7 +638,7 @@ export default function MessagesPage() {
                         }
                     }}
                     disabled={receiptItems.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.unit_price || 0)), 0) <= 0 || receiptItems.some(it => !it.desc.trim())}
-                    >Create</Button>
+                    >{editingReceipt ? 'Save Changes' : 'Create'}</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -738,7 +726,7 @@ export default function MessagesPage() {
                         </div>
                         <div className="flex justify-between font-semibold">
                             <div>Total</div>
-                            <div>₱{formatCurrency(serviceRequest?.amount)}</div>
+                            <div>₱{formatCurrency((Number(serviceRequest?.amount ?? 0)) + (Number(serviceRequest?.booking_fee_total ?? 0)))}</div>
                         </div>
                     </div>
 

@@ -92,7 +92,9 @@ class ConversationController extends Controller
 
         $conversation->update(['last_message_at' => now()]);
 
-        broadcast(new MessageSent($message))->toOthers();
+        if ($this->canBroadcastRealtime()) {
+            broadcast(new MessageSent($message))->toOthers();
+        }
 
         return response()->json($message);
     }
@@ -100,7 +102,9 @@ class ConversationController extends Controller
     public function typing(Request $request, Conversation $conversation)
     {
         $user = $this->authorizeAccess($request, $conversation);
-        broadcast(new TypingStarted($conversation->id, $user instanceof Technician ? Technician::class : get_class($user), $user->id))->toOthers();
+        if ($this->canBroadcastRealtime()) {
+            broadcast(new TypingStarted($conversation->id, $user instanceof Technician ? Technician::class : get_class($user), $user->id))->toOthers();
+        }
         return response()->json(['ok' => true]);
     }
 
@@ -117,7 +121,9 @@ class ConversationController extends Controller
             ], [
                 'read_at' => $now,
             ]);
-            broadcast(new MessageRead($conversation->id, $id, $user instanceof Technician ? Technician::class : get_class($user), $user->id))->toOthers();
+            if ($this->canBroadcastRealtime()) {
+                broadcast(new MessageRead($conversation->id, $id, $user instanceof Technician ? Technician::class : get_class($user), $user->id))->toOthers();
+            }
         }
         return response()->json(['ok' => true]);
     }
@@ -129,6 +135,12 @@ class ConversationController extends Controller
         $user = $customer ?: $technician;
         abort_unless($user && ($conversation->customer_id === ($customer->id ?? -1) || $conversation->technician_id === ($technician->id ?? -1)), 403);
         return $user;
+    }
+
+    private function canBroadcastRealtime(): bool
+    {
+        // Only broadcast if pusher driver is active and SDK exists
+        return config('broadcasting.default') === 'pusher' && class_exists('Pusher\\Pusher');
     }
 }
 

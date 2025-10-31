@@ -198,6 +198,47 @@ class ServiceRequestController extends Controller
     }
 
     /**
+     * Technician updates the generated receipt (items, total, notes)
+     */
+    public function updateReceipt(Request $request, ServiceRequest $serviceRequest)
+    {
+        $technician = $request->user('technician');
+        if (!$technician || $serviceRequest->technician_id !== $technician->id) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'receipt_items' => ['required', 'array', 'min:1'],
+            'receipt_items.*.desc' => ['required', 'string', 'max:255'],
+            'receipt_items.*.qty' => ['required', 'numeric', 'min:0'],
+            'receipt_items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'receipt_total' => ['required', 'numeric', 'min:0'],
+            'receipt_notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $serviceRequest->update([
+            'receipt_items' => $validated['receipt_items'],
+            'receipt_total' => $validated['receipt_total'],
+            'receipt_notes' => $validated['receipt_notes'] ?? null,
+            // Keep main amount in sync with receipt total
+            'amount' => $validated['receipt_total'],
+        ]);
+
+        // Also reflect on conversation for consistency
+        if ($serviceRequest->conversation_id) {
+            $conversation = Conversation::find($serviceRequest->conversation_id);
+            if ($conversation) {
+                $conversation->update(['consultation_fee' => $validated['receipt_total']]);
+            }
+        }
+
+        return response()->json([
+            'message' => 'Receipt updated',
+            'service_request' => $serviceRequest->fresh(['customer:id,first_name,last_name', 'technician:id,first_name,last_name']),
+        ]);
+    }
+
+    /**
      * Upload receipt attachments (images/PDF) up to 5 files, 5MB each
      */
     public function uploadReceipts(Request $request, ServiceRequest $serviceRequest)
