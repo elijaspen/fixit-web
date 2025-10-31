@@ -21,6 +21,8 @@ Route::middleware(['web'])->group(function () {
         Route::patch('service-requests/{serviceRequest}/complete', [\App\Http\Controllers\ServiceRequestController::class, 'complete']);
         // Admin marks booking fee as received (manual confirmation)
         Route::post('service-requests/{serviceRequest}/booking-fee/mark-received', [\App\Http\Controllers\ServiceRequestController::class, 'adminMarkBookingFeeReceived']);
+        // Admin reviews listing (all)
+        Route::get('reviews', [\App\Http\Controllers\ReviewController::class, 'listAll']);
     });
 
     // Customer auth
@@ -50,6 +52,8 @@ Route::middleware(['web'])->group(function () {
     Route::middleware('auth:customer,technician,admin')->group(function () {
         Route::get('technicians', [TechnicianController::class, 'index']);
         Route::get('technicians/{technician}', [TechnicianController::class, 'show']);
+        // Rating summary public to authenticated roles
+        Route::get('technicians/{technician}/reviews/summary', [\App\Http\Controllers\ReviewController::class, 'summary']);
     });
 
     // Conversations & messages
@@ -69,6 +73,9 @@ Route::middleware(['web'])->group(function () {
         // Service requests
         Route::middleware(['auth:customer'])->group(function () {
             Route::post('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'create']);
+            // Customer reviews
+            Route::post('technicians/{technician}/reviews', [\App\Http\Controllers\ReviewController::class, 'upsert']);
+            Route::get('technicians/{technician}/reviews/mine', [\App\Http\Controllers\ReviewController::class, 'mine']);
         });
         
         Route::middleware(['auth:technician'])->group(function () {
@@ -78,6 +85,10 @@ Route::middleware(['web'])->group(function () {
             Route::patch('service-requests/{serviceRequest}/customer-payment', [\App\Http\Controllers\ServiceRequestController::class, 'updateCustomerPayment']);
             // Technician pays booking fee (method/reference)
             Route::post('service-requests/{serviceRequest}/booking-fee/pay', [\App\Http\Controllers\ServiceRequestController::class, 'payBookingFee']);
+            // Technician edits receipt items/notes/total
+            Route::patch('service-requests/{serviceRequest}/receipt', [\App\Http\Controllers\ServiceRequestController::class, 'updateReceipt']);
+            // Technician reviews listing (their own)
+            Route::get('reviews', [\App\Http\Controllers\ReviewController::class, 'listMine']);
         });
         
         Route::middleware(['auth:customer,technician'])->group(function () {

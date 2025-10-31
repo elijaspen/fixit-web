@@ -44,11 +44,16 @@ const getSettingsNavItems = (role?: string): NavItem[] => {
         },
     ];
 
-    // Add Credentials link for technicians only
+    // Add Credentials and Reviews links for technicians only
     if (role === 'technician') {
         items.splice(4, 0, {
             title: 'Credentials',
             href: '/settings/credentials',
+            icon: FileText,
+        });
+        items.splice(5, 0, {
+            title: 'Reviews',
+            href: '/settings/reviews',
             icon: FileText,
         });
     }

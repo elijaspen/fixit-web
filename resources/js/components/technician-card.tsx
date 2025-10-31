@@ -12,11 +12,12 @@ interface TechnicianCardProps {
         address?: string | null
         base_pricing?: number | null
     }
-    rating?: number // Will be implemented later
+    rating?: number
+    ratingCount?: number
     onViewProfile: (technicianId: number) => void
 }
 
-export function TechnicianCard({ technician, rating = 0, onViewProfile }: TechnicianCardProps) {
+export function TechnicianCard({ technician, rating = 0, ratingCount = 0, onViewProfile }: TechnicianCardProps) {
     const handleMessage = async () => {
         try {
             const response = await axios.post('/api/conversations', { technician_id: technician.id })
@@ -55,7 +56,8 @@ export function TechnicianCard({ technician, rating = 0, onViewProfile }: Techni
                                 }`}
                             />
                         ))}
-                        {rating > 0 && <span className="ml-1 text-xs text-muted-foreground">({rating.toFixed(1)})</span>}
+                        {rating > 0 && <span className="ml-1 text-xs text-muted-foreground">{rating.toFixed(1)}</span>}
+                        {ratingCount > 0 && <span className="ml-1 text-xs text-muted-foreground">• {ratingCount}</span>}
                     </div>
                     
                     <p className="text-xs text-muted-foreground">

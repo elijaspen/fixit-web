@@ -45,6 +45,7 @@ export default function CustomerDashboard() {
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
     const [loading, setLoading] = useState(true)
+    const [ratings, setRatings] = useState<Record<number, { average: number; count: number }>>({})
 
     useEffect(() => {
         loadTechnicians()
@@ -78,10 +79,24 @@ export default function CustomerDashboard() {
             const response = await axios.get('/api/technicians')
             setTechnicians(response.data || [])
             setFilteredTechnicians(response.data || [])
+            // Fetch ratings summary in parallel
+            const list: Technician[] = response.data || []
+            const summaries = await Promise.all(list.map(async (t) => {
+                try {
+                    const r = await axios.get(`/api/technicians/${t.id}/reviews/summary`)
+                    return [t.id, { average: Number(r.data?.average || 0), count: Number(r.data?.count || 0) }] as const
+                } catch {
+                    return [t.id, { average: 0, count: 0 }] as const
+                }
+            }))
+            const map: Record<number, { average: number; count: number }> = {}
+            summaries.forEach(([id, s]) => { map[id] = s })
+            setRatings(map)
         } catch (error) {
             console.error('Error loading technicians:', error)
             setTechnicians([])
             setFilteredTechnicians([])
+            setRatings({})
         } finally {
             setLoading(false)
         }
@@ -153,7 +168,8 @@ export default function CustomerDashboard() {
                                 <TechnicianCard
                                     key={technician.id}
                                     technician={technician}
-                                    rating={4.0} // Placeholder rating - will be implemented later
+                                    rating={ratings[technician.id]?.average || 0}
+                                    ratingCount={ratings[technician.id]?.count || 0}
                                     onViewProfile={handleViewProfile}
                                 />
                             ))}
@@ -187,7 +203,8 @@ export default function CustomerDashboard() {
                                 <TechnicianCard
                                     key={technician.id}
                                     technician={technician}
-                                    rating={4.5} // Placeholder rating - will be implemented later
+                                    rating={ratings[technician.id]?.average || 0}
+                                    ratingCount={ratings[technician.id]?.count || 0}
                                     onViewProfile={handleViewProfile}
                                 />
                             ))}
@@ -206,7 +223,7 @@ export default function CustomerDashboard() {
                 {/* Technician Profile Modal */}
                 <TechnicianProfileModal
                     technician={selectedTechnician}
-                    rating={4.0} // Placeholder rating
+                    rating={selectedTechnician ? (ratings[selectedTechnician.id]?.average || 0) : 0}
                     open={isProfileModalOpen}
                     onOpenChange={setIsProfileModalOpen}
                 />

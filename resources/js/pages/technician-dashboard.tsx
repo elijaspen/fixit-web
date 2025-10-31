@@ -211,6 +211,12 @@ export default function TechnicianDashboard({ currentUser }: TechnicianDashboard
                             </Button>
                         </Link>
                     )}
+                    <Link href="/settings/reviews">
+                        <Button variant="outline" className="gap-2">
+                            <FileText className="h-4 w-4" />
+                            Reviews
+                        </Button>
+                    </Link>
                     <div className="ml-auto">
                         <Badge variant={currentUser?.is_verified ? 'default' : 'secondary'}>
                             {currentUser?.is_verified ? '✓ Verified' : '⏳ Pending Verification'}

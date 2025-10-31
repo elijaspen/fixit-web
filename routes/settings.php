@@ -25,4 +25,8 @@ Route::middleware([\App\Http\Middleware\MultiAuth::class])->group(function () {
         Route::get('settings/credentials', function () {
             return Inertia::render('settings/credentials');
         })->name('credentials.show');
+
+        Route::get('settings/reviews', function () {
+            return Inertia::render('settings/reviews');
+        })->name('reviews.index');
     });

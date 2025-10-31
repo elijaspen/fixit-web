@@ -14,7 +14,7 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { Star, Mail, MapPin, Calendar, DollarSign, Briefcase, FileText } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import axios from '@/axios-config'
 import { router } from '@inertiajs/react'
 
@@ -53,6 +53,10 @@ type PricingTier = 'normal' | 'standard' | 'advanced' | 'base'
 export function TechnicianProfileModal({ technician, rating = 0, open, onOpenChange }: TechnicianProfileModalProps) {
     const [showAvailability, setShowAvailability] = useState(false)
     const [selectedPricingTier, setSelectedPricingTier] = useState<PricingTier | null>(null)
+    const [myRating, setMyRating] = useState<number>(0)
+    const [myComment, setMyComment] = useState<string>('')
+    const [savingReview, setSavingReview] = useState(false)
+    const [hoverRating, setHoverRating] = useState<number | null>(null)
 
     // Determine available pricing tiers (must be before any early returns)
     const availableTiers: Array<{ value: PricingTier; label: string; rate: number; description: string }> = []
@@ -99,6 +103,24 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
     // Compute selected tier with a safe default without mutating state in effects
     const computedSelectedTier: PricingTier | undefined = selectedPricingTier || availableTiers[0]?.value
     const currentTier = computedSelectedTier ? availableTiers.find(t => t.value === computedSelectedTier) || null : null
+
+    useEffect(() => {
+        if (!open || !technician) return
+        // Prefill user's existing review if present
+        axios.get(`/api/technicians/${technician.id}/reviews/mine`).then(r => {
+            const rev = r.data as { rating?: number; comment?: string } | null
+            if (rev) {
+                setMyRating(rev.rating ?? 0)
+                setMyComment(rev.comment ?? '')
+            } else {
+                setMyRating(0)
+                setMyComment('')
+            }
+        }).catch(() => {
+            setMyRating(0)
+            setMyComment('')
+        })
+    }, [open, technician?.id])
 
     if (!technician) return null
 
@@ -339,59 +361,57 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                         </div>
                     </div>
 
-                    {/* Rating Section */}
+                    {/* Rating & Review */}
                     <div className="border rounded-lg p-4">
-                        <h3 className="font-semibold mb-4">Rating Section</h3>
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm">Efficiency</span>
-                                <div className="flex items-center gap-1">
-                                    {[...Array(5)].map((_, i) => (
-                                        <Star
-                                            key={i}
-                                            className={`h-4 w-4 ${
-                                                i < Math.round(rating * 0.9)
-                                                    ? 'fill-yellow-400 text-yellow-400'
-                                                    : 'fill-none text-neutral-300'
-                                            }`}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm">Speed</span>
-                                <div className="flex items-center gap-1">
-                                    {[...Array(5)].map((_, i) => (
-                                        <Star
-                                            key={i}
-                                            className={`h-4 w-4 ${
-                                                i < Math.round(rating * 0.8)
-                                                    ? 'fill-yellow-400 text-yellow-400'
-                                                    : 'fill-none text-neutral-300'
-                                            }`}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm">Accuracy</span>
-                                <div className="flex items-center gap-1">
-                                    {[...Array(5)].map((_, i) => (
-                                        <Star
-                                            key={i}
-                                            className={`h-4 w-4 ${
-                                                i < Math.round(rating)
-                                                    ? 'fill-yellow-400 text-yellow-400'
-                                                    : 'fill-none text-neutral-300'
-                                            }`}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
+                        <h3 className="font-semibold mb-3">Rate this technician</h3>
+                        <div className="flex items-center gap-2">
+                            {[...Array(5)].map((_, i) => {
+                                const index = i + 1
+                                const filled = (hoverRating ?? myRating) >= index
+                                return (
+                                    <button
+                                        key={i}
+                                        type="button"
+                                        className="p-0.5"
+                                        onMouseEnter={() => setHoverRating(index)}
+                                        onMouseLeave={() => setHoverRating(null)}
+                                        onClick={() => setMyRating(index)}
+                                        aria-label={`Rate ${index} star${index>1?'s':''}`}
+                                    >
+                                        <Star className={`h-6 w-6 ${filled ? 'fill-yellow-400 text-yellow-400' : 'fill-none text-neutral-300'}`} />
+                                    </button>
+                                )
+                            })}
+                            <span className="text-sm text-muted-foreground ml-2">{myRating}/5</span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-4 italic">
-                            Note: Message the technician for booking
-                        </p>
+                        <div className="mt-3">
+                            <textarea
+                                value={myComment}
+                                onChange={(e) => setMyComment(e.target.value)}
+                                placeholder="Write a short review (optional)"
+                                className="w-full rounded-md border bg-background p-2 text-sm min-h-[80px]"
+                            />
+                        </div>
+                        <div className="mt-3 flex justify-end">
+                            <Button
+                                disabled={savingReview || myRating === 0}
+                                onClick={async () => {
+                                    if (myRating === 0) return
+                                    try {
+                                        setSavingReview(true)
+                                        await axios.post(`/api/technicians/${technician.id}/reviews`, { rating: myRating, comment: myComment || undefined })
+                                        // Optionally show a toast; for now, simple alert
+                                        alert('Review saved')
+                                    } catch (e) {
+                                        alert('Failed to save review')
+                                    } finally {
+                                        setSavingReview(false)
+                                    }
+                                }}
+                            >
+                                {savingReview ? 'Saving…' : 'Submit Review'}
+                            </Button>
+                        </div>
                     </div>
 
                     {/* Action Button */}
