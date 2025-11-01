@@ -62,6 +62,13 @@ axios.interceptors.response.use(
 
 // Use interceptor to get the token dynamically before each request
 axios.interceptors.request.use(function (config) {
+    // Skip chat-related requests while logging out to avoid noisy 419s
+    if ((window as any).__loggingOut && typeof config.url === 'string' && config.url.includes('/api/conversations') && config.method?.toLowerCase() === 'post') {
+        // Cancel the request silently
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        return Promise.reject(new axios.Cancel('Cancelled during logout'))
+    }
     const token = getCsrfToken()
     if (token) {
         config.headers['X-CSRF-TOKEN'] = token

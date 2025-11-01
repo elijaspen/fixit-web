@@ -50,6 +50,8 @@ Route::middleware([\App\Http\Middleware\MultiAuth::class])->group(function () {
 
 // Unified login page (no role selection)
 Route::get('/auth/login', fn() => Inertia::render('auth/login'))->name('auth.login');
+// Unified login endpoint (tries all guards)
+Route::post('/auth/login/unified', [\App\Http\Controllers\Auth\UnifiedLoginController::class, '__invoke'])->name('auth.login.unified');
 
 // Role selection ONLY for registration
 Route::get('/auth/select-role', function (Request $request) {
@@ -80,6 +82,8 @@ Route::post('/auth/admin/login', [AdminAuthController::class, 'login']);
 
 // Unified logout route (handles all guards)
 Route::post('/logout', LogoutController::class)->name('logout');
+// Fallback GET logout to avoid CSRF edge cases in some clients
+Route::get('/logout', LogoutController::class)->name('logout.get');
 
 require __DIR__.'/settings.php';
 
@@ -90,4 +94,28 @@ Route::prefix('admin')->middleware('auth:admin')->group(function () {
     Route::get('/service-requests', fn() => Inertia::render('admin/service-requests'))->name('admin.service-requests');
     Route::get('/reviews', fn() => Inertia::render('admin/reviews'))->name('admin.reviews');
     Route::get('/logs', fn() => Inertia::render('admin/logs'))->name('admin.logs');
+});
+
+// API endpoints that require session (web) guards, but keep /api prefix for frontend
+Route::prefix('api')->middleware(['web'])->group(function () {
+    // Technician availability (session guard)
+    Route::middleware('auth:technician')->group(function () {
+        Route::get('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'indexMe']);
+        Route::get('technicians/me/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndexMe']);
+        Route::post('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'upsert']);
+    });
+
+    // Public-to-auth roles (customer/technician/admin) viewing a technician availability
+    Route::middleware('auth:customer,technician,admin')->group(function () {
+        Route::get('technicians/{technician}/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'index']);
+        Route::get('technicians/{technician}/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndex']);
+        // Profile avatar upload (any role)
+        Route::post('profile/avatar', [\App\Http\Controllers\ProfileAvatarController::class, 'upload']);
+        // Me endpoints by role (for client to fetch avatar without errors)
+        Route::get('customer/me', [\App\Http\Controllers\Auth\CustomerAuthController::class, 'me'])->middleware('auth:customer');
+        Route::get('technician/me', [\App\Http\Controllers\Auth\TechnicianAuthController::class, 'me'])->middleware('auth:technician');
+        Route::get('admin/me', [\App\Http\Controllers\Auth\AdminAuthController::class, 'me'])->middleware('auth:admin');
+        // Admin stats
+        Route::get('admin/stats', [\App\Http\Controllers\AdminStatsController::class, 'index'])->middleware('auth:admin');
+    });
 });

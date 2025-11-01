@@ -54,6 +54,10 @@ Route::middleware(['web'])->group(function () {
         Route::get('technicians/{technician}', [TechnicianController::class, 'show']);
         // Rating summary public to authenticated roles
         Route::get('technicians/{technician}/reviews/summary', [\App\Http\Controllers\ReviewController::class, 'summary']);
+        // Availability (weekly view) for customers/admin to see
+        Route::get('technicians/{technician}/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'index']);
+        // Availability (monthly view)
+        Route::get('technicians/{technician}/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndex']);
     });
 
     // Conversations & messages
@@ -89,6 +93,12 @@ Route::middleware(['web'])->group(function () {
             Route::patch('service-requests/{serviceRequest}/receipt', [\App\Http\Controllers\ServiceRequestController::class, 'updateReceipt']);
             // Technician reviews listing (their own)
             Route::get('reviews', [\App\Http\Controllers\ReviewController::class, 'listMine']);
+            // Technician upserts weekly availability
+            Route::post('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'upsert']);
+            // Technician views weekly availability (self)
+            Route::get('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'indexMe']);
+            // Technician views monthly availability (self)
+            Route::get('technicians/me/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndexMe']);
         });
         
         Route::middleware(['auth:customer,technician'])->group(function () {
