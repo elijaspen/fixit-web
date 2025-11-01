@@ -13,8 +13,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
-import { Star, Mail, MapPin, Calendar, DollarSign, Briefcase, FileText } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Star, Mail, MapPin, Calendar, DollarSign, Briefcase, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/axios-config'
 import { router } from '@inertiajs/react'
 
@@ -52,6 +52,9 @@ type PricingTier = 'normal' | 'standard' | 'advanced' | 'base'
 
 export function TechnicianProfileModal({ technician, rating = 0, open, onOpenChange }: TechnicianProfileModalProps) {
     const [showAvailability, setShowAvailability] = useState(false)
+    const [month, setMonth] = useState<string>('') // YYYY-MM
+    const [monthDays, setMonthDays] = useState<Array<{ date: string; status: 'available' | 'unavailable' }>>([])
+    const [loadingAvailability, setLoadingAvailability] = useState(false)
     const [selectedPricingTier, setSelectedPricingTier] = useState<PricingTier | null>(null)
     const [myRating, setMyRating] = useState<number>(0)
     const [myComment, setMyComment] = useState<string>('')
@@ -120,7 +123,80 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
             setMyRating(0)
             setMyComment('')
         })
+
+        // Initialize current month YYYY-MM
+        const now = new Date()
+        const yyyyMm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
+        setMonth(yyyyMm)
     }, [open, technician?.id])
+
+    const loadAvailability = useCallback(async (yyyyMm: string) => {
+        if (!technician) return
+        setLoadingAvailability(true)
+        try {
+            const res = await axios.get(`/api/technicians/${technician.id}/availability/month`, { params: { month: yyyyMm } })
+            setMonthDays(res.data.days || [])
+        } catch (e) {
+            setMonthDays([])
+        } finally {
+            setLoadingAvailability(false)
+        }
+    }, [technician?.id])
+
+    useEffect(() => {
+        if (!open || !technician || !month) return
+        loadAvailability(month)
+    }, [open, technician?.id, month, loadAvailability])
+
+    const nextMonth = () => {
+        const [y, m] = month.split('-').map(n => parseInt(n, 10))
+        const d = new Date(y, m - 1, 1)
+        d.setMonth(d.getMonth() + 1)
+        setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)
+    }
+    const prevMonth = () => {
+        const [y, m] = month.split('-').map(n => parseInt(n, 10))
+        const d = new Date(y, m - 1, 1)
+        d.setMonth(d.getMonth() - 1)
+        setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)
+    }
+
+    const monthLabel = useMemo(() => {
+        if (!month) return ''
+        const [y, m] = month.split('-').map(n => parseInt(n, 10))
+        const d = new Date(y, m - 1, 1)
+        return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    }, [month])
+
+    const monthCells = useMemo(() => {
+        if (!month) return [] as Array<{ key: string; label: string; status?: 'available'|'unavailable'; muted?: boolean }>
+        const [y, m] = month.split('-').map(n => parseInt(n, 10))
+        const first = new Date(y, m - 1, 1)
+        const startWeekday = (first.getDay() + 6) % 7 // make Monday=0
+        const daysInMonth = new Date(y, m, 0).getDate()
+        const cells: Array<{ key: string; label: string; status?: 'available'|'unavailable'; muted?: boolean; disabled?: boolean }> = []
+        // leading blanks for the first week
+        for (let i = 0; i < startWeekday; i++) {
+            cells.push({ key: `blank-${i}`, label: '', muted: true })
+        }
+        // actual days
+        for (let day = 1; day <= daysInMonth; day++) {
+            const iso = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`
+            const record = monthDays.find(d => d.date === iso)
+            const today = new Date()
+            const isoToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+            const isPast = iso < isoToday
+            cells.push({ key: iso, label: String(day), status: record?.status || 'available', disabled: isPast })
+        }
+        // trailing blanks to complete grid rows (optional)
+        const remainder = cells.length % 7
+        if (remainder !== 0) {
+            for (let i = 0; i < 7 - remainder; i++) {
+                cells.push({ key: `blank-tail-${i}`, label: '', muted: true })
+            }
+        }
+        return cells
+    }, [month, monthDays])
 
     if (!technician) return null
 
@@ -150,8 +226,12 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                 <div className="space-y-6">
                     {/* Picture and Basic Info */}
                     <div className="flex gap-6">
-                        <div className="h-32 w-32 shrink-0 rounded-full bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center">
-                            <span className="text-4xl">👤</span>
+                        <div className="h-32 w-32 shrink-0 rounded-full bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center overflow-hidden">
+                            {technician.avatar_path ? (
+                                <img src={`/storage/${technician.avatar_path}`} alt={technician.name} className="h-full w-full object-cover" />
+                            ) : (
+                                <span className="text-4xl">👤</span>
+                            )}
                         </div>
                         <div className="flex-1">
                             <h2 className="text-2xl font-bold">{technician.name}</h2>
@@ -200,15 +280,39 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                         </div>
                         {showAvailability && (
                             <div className="mt-4 p-4 bg-neutral-50 dark:bg-neutral-900 rounded-lg">
-                                {/* Placeholder calendar - will be replaced with actual calendar component */}
-                                <p className="text-sm text-muted-foreground mb-2">Available dates:</p>
-                                <div className="text-sm">
-                                    {technician.availability_notes || 'Check availability by messaging the technician'}
+                                <div className="flex items-center justify-between mb-3">
+                                    <Button variant="ghost" size="icon" onClick={prevMonth} aria-label="Previous month">
+                                        <ChevronLeft className="h-4 w-4" />
+                                    </Button>
+                                    <div className="text-sm font-medium">{monthLabel}</div>
+                                    <Button variant="ghost" size="icon" onClick={nextMonth} aria-label="Next month">
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Button>
                                 </div>
-                                {/* TODO: Add calendar component here */}
-                                <div className="mt-4 text-sm text-muted-foreground italic">
-                                    Calendar component will be implemented here
-                                </div>
+                                {loadingAvailability ? (
+                                    <div className="text-sm text-muted-foreground">Loading availability…</div>
+                                ) : (
+                                    <div className="grid grid-cols-7 gap-2">
+                                        {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => (
+                                            <div key={d} className="text-center text-[11px] text-muted-foreground">{d}</div>
+                                        ))}
+                                        {monthCells.map(cell => {
+                                            if (cell.muted) return <div key={cell.key} />
+                                            const isAvailable = cell.status === 'available'
+                                            const today = new Date()
+                                            const isoToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+                                            const isToday = cell.key === isoToday
+                                            return (
+                                                <div key={cell.key} className={`rounded border p-2 text-center text-xs ${cell.disabled ? 'bg-neutral-50 text-neutral-400' : isAvailable ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'} ${isToday ? 'ring-2 ring-blue-400' : ''}`}>
+                                                    <div className="font-medium">{cell.label}</div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                                {technician.availability_notes && (
+                                    <div className="mt-3 text-xs text-muted-foreground">{technician.availability_notes}</div>
+                                )}
                             </div>
                         )}
                         {!showAvailability && (

@@ -11,6 +11,7 @@ interface TechnicianCardProps {
         expertise?: string | null
         address?: string | null
         base_pricing?: number | null
+        avatar_path?: string | null
     }
     rating?: number
     ratingCount?: number
@@ -33,9 +34,13 @@ export function TechnicianCard({ technician, rating = 0, ratingCount = 0, onView
     return (
         <Card className="overflow-hidden">
             <div className="flex gap-4 p-4">
-                {/* Placeholder for technician picture */}
-                <div className="h-20 w-20 shrink-0 rounded-full bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center">
-                    <span className="text-2xl">👤</span>
+                {/* Technician picture */}
+                <div className="h-20 w-20 shrink-0 rounded-full bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center overflow-hidden ring-1 ring-neutral-300">
+                    {technician.avatar_path ? (
+                        <img src={`/storage/${technician.avatar_path}`} alt={technician.name} className="h-full w-full object-cover" />
+                    ) : (
+                        <span className="text-2xl">👤</span>
+                    )}
                 </div>
                 
                 <div className="flex min-w-0 flex-1 flex-col gap-2">

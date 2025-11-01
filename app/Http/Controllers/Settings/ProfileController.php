@@ -29,13 +29,39 @@ class ProfileController extends Controller
      */
     public function update(ProfileUpdateRequest $request): RedirectResponse
     {
-        $request->user()->fill($request->validated());
-
-        if ($request->user()->isDirty('email')) {
-            $request->user()->email_verified_at = null;
+        // Resolve the authenticated actor across guards
+        $actor = $request->user() ?? $request->user('customer') ?? $request->user('technician') ?? $request->user('admin');
+        if (!$actor) {
+            abort(401);
         }
 
-        $request->user()->save();
+        $data = $request->validated();
+
+        // If actor is Admin, map first/last to name; others use first_name/last_name directly
+        if ($actor instanceof \App\Models\Admin) {
+            if (array_key_exists('first_name', $data) || array_key_exists('last_name', $data)) {
+                $actor->name = trim(($data['first_name'] ?? '') . ' ' . ($data['last_name'] ?? ''));
+            }
+            if (array_key_exists('email', $data)) {
+                $actor->email = $data['email'];
+            }
+        } else {
+            // Fill only allowed attributes
+            if (method_exists($actor, 'getFillable')) {
+                $fillable = array_flip($actor->getFillable());
+                $actor->fill(array_intersect_key($data, $fillable));
+            }
+            if (array_key_exists('email', $data)) {
+                $actor->email = $data['email'];
+            }
+        }
+
+        // Reset email verification timestamp if email changed
+        if ($actor->isDirty('email') && property_exists($actor, 'email_verified_at')) {
+            $actor->email_verified_at = null;
+        }
+
+        $actor->save();
 
         return to_route('profile.edit');
     }

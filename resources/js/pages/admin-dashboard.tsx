@@ -4,7 +4,7 @@ import { type BreadcrumbItem } from '@/types'
 import { Head, Link } from '@inertiajs/react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Users, FileText, AlertCircle, CheckCircle } from 'lucide-react'
+import { Users, FileText, AlertCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import axios from '@/axios-config'
 
@@ -16,18 +16,17 @@ const breadcrumbs: BreadcrumbItem[] = [
 ]
 
 export default function AdminDashboard() {
-    const [outstandingCount, setOutstandingCount] = useState<number | null>(null)
+    const [stats, setStats] = useState<{ total_users: number; total_technicians: number; total_customers: number; pending_service_requests: number } | null>(null)
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
         const load = async () => {
             setLoading(true)
             try {
-                const r = await axios.get('/api/admin/service-requests', { params: { outstanding_fees: 1 } })
-                const items = r.data.data || r.data
-                setOutstandingCount(items.length)
+                const r = await axios.get('/api/admin/stats')
+                setStats(r.data)
             } catch {
-                setOutstandingCount(null)
+                setStats(null)
             } finally {
                 setLoading(false)
             }
@@ -45,46 +44,51 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Quick Stats Cards */}
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    <Card className="p-6">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-sm text-muted-foreground">Total Users</p>
+                                <p className="text-2xl font-bold">{loading || !stats ? '—' : stats.total_users}</p>
+                                <p className="text-xs text-muted-foreground mt-1">Admins, Technicians, and Customers</p>
+                            </div>
+                            <Users className="h-10 w-10 text-primary" />
+                        </div>
+                    </Card>
+
                     <Card className="p-6">
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm text-muted-foreground">Total Technicians</p>
-                                <p className="text-2xl font-bold">All Technicians</p>
-                                <p className="text-xs text-muted-foreground mt-1">View and manage technician accounts</p>
+                                <p className="text-2xl font-bold">{loading || !stats ? '—' : stats.total_technicians}</p>
+                                <p className="text-xs text-muted-foreground mt-1">Verified and unverified</p>
                             </div>
-                            <Users className="h-10 w-10 text-primary" />
+                            <Users className="h-10 w-10 text-blue-500" />
                         </div>
-                        <Link href="/admin/technicians" className="mt-4 inline-block">
-                            <Button className="w-full">Manage Technicians</Button>
-                        </Link>
                     </Card>
 
                     <Card className="p-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-muted-foreground">Outstanding Booking Fees</p>
-                                <p className="text-2xl font-bold">{loading ? '—' : (outstandingCount ?? '—')}</p>
-                                <p className="text-xs text-muted-foreground mt-1">Unpaid booking fees from completed/active jobs</p>
+                                <p className="text-sm text-muted-foreground">Total Customers</p>
+                                <p className="text-2xl font-bold">{loading || !stats ? '—' : stats.total_customers}</p>
+                                <p className="text-xs text-muted-foreground mt-1">Registered customers</p>
                             </div>
-                            <FileText className="h-10 w-10 text-yellow-500" />
+                            <Users className="h-10 w-10 text-green-600" />
                         </div>
-                        <Link href="/admin/service-requests?outstanding_fees=1" className="mt-4 inline-block">
-                            <Button variant="outline" className="w-full">View Service Requests</Button>
-                        </Link>
                     </Card>
 
                     <Card className="p-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-muted-foreground">Verified Technicians</p>
-                                <p className="text-2xl font-bold">Active</p>
-                                <p className="text-xs text-muted-foreground mt-1">Technicians verified and visible to customers</p>
+                                <p className="text-sm text-muted-foreground">Pending Service Requests</p>
+                                <p className="text-2xl font-bold">{loading || !stats ? '—' : stats.pending_service_requests}</p>
+                                <p className="text-xs text-muted-foreground mt-1">Awaiting technician action</p>
                             </div>
-                            <CheckCircle className="h-10 w-10 text-green-500" />
+                            <FileText className="h-10 w-10 text-yellow-600" />
                         </div>
-                        <Link href="/admin/technicians?is_verified=true" className="mt-4 inline-block">
-                            <Button variant="outline" className="w-full">View Verified</Button>
+                        <Link href="/admin/service-requests?status=pending" className="mt-4 inline-block">
+                            <Button variant="outline" className="w-full">View Pending</Button>
                         </Link>
                     </Card>
                 </div>

@@ -11,10 +11,19 @@ export function UserInfo({
 }) {
     const getInitials = useInitials();
 
+    let imageSrc: string | undefined
+    if ((user as any)?.avatar) {
+        imageSrc = (user as any).avatar as string
+    } else if ((user as any)?.avatar_path) {
+        imageSrc = `/storage/${(user as any).avatar_path}`
+    } else {
+        imageSrc = undefined
+    }
+
     return (
         <>
             <Avatar className="h-8 w-8 overflow-hidden rounded-full">
-                <AvatarImage src={user.avatar} alt={user.name} />
+                <AvatarImage src={imageSrc} alt={user.name} />
                 <AvatarFallback className="rounded-lg bg-neutral-200 text-black dark:bg-neutral-700 dark:text-white">
                     {getInitials(user.name)}
                 </AvatarFallback>

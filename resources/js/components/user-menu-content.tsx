@@ -21,15 +21,12 @@ export function UserMenuContent({ user }: UserMenuContentProps) {
     const handleLogout = (e: React.MouseEvent) => {
         e.preventDefault();
         cleanup();
+        ;(window as any).__loggingOut = true
         // Use window.location for full page reload after logout to refresh CSRF token
-        router.post('/logout', {}, {
-            preserveScroll: false,
-            preserveState: false,
-            onSuccess: () => {
-                // Force full page reload to get fresh CSRF token
-                window.location.href = '/';
-            },
-        });
+        const meta = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null
+        const csrf = meta?.getAttribute('content') || ''
+        // Use GET fallback route to avoid CSRF edge cases
+        window.location.href = '/logout'
     };
 
     return (

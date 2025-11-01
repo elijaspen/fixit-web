@@ -12,6 +12,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import SettingsSidebarLayout from '@/layouts/settings/settings-sidebar-layout';
 import { edit } from '@/routes/profile';
+import axios from '@/axios-config'
+import { useRef, useState } from 'react'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -32,12 +35,17 @@ export default function Profile({
     status?: string;
 }) {
     const { auth } = usePage<SharedData>().props;
+    const fileInputRef = useRef<HTMLInputElement | null>(null)
+    const [selectedName, setSelectedName] = useState<string>('')
     const user = auth.user as unknown as {
         first_name?: string;
         last_name?: string;
         address?: string;
         email: string;
         email_verified_at: string | null;
+        avatar?: string | null;
+        avatar_path?: string | null;
+        name?: string | null;
     };
 
     return (
@@ -45,6 +53,51 @@ export default function Profile({
             <Head title="Profile settings" />
 
             <div className="space-y-6">
+                    <div className="flex items-center gap-4">
+                        <Avatar className="h-16 w-16">
+                            <AvatarImage src={user.avatar || (user.avatar_path ? `/storage/${user.avatar_path}` : undefined)} alt={user.name || 'Avatar'} />
+                            <AvatarFallback>
+                                {(user.first_name?.[0] || '') + (user.last_name?.[0] || (user.email?.[0] || 'U'))}
+                            </AvatarFallback>
+                        </Avatar>
+                        <div>
+                            <Label htmlFor="avatar">Profile picture</Label>
+                            <div className="mt-2 flex items-center gap-3">
+                                <input
+                                    ref={fileInputRef}
+                                    id="avatar"
+                                    name="avatar"
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={async (e) => {
+                                        const inputEl = e.currentTarget
+                                        const file = inputEl.files?.[0]
+                                        if (!file) return
+                                        setSelectedName(file.name)
+                                        const form = new FormData()
+                                        form.append('avatar', file)
+                                        try {
+                                            await axios.post('/api/profile/avatar', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+                                            window.location.reload()
+                                        } catch (err: unknown) {
+                                            alert('Failed to upload avatar')
+                                        } finally {
+                                            // Reset file input safely using stored reference
+                                            inputEl.value = ''
+                                        }
+                                    }}
+                                    className="hidden"
+                                />
+                                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                                    Choose file
+                                </Button>
+                                <span className="text-xs text-muted-foreground truncate max-w-[220px]" title={selectedName || 'No file chosen'}>
+                                    {selectedName || 'No file chosen'}
+                                </span>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">PNG or JPG up to 5MB.</p>
+                        </div>
+                    </div>
                     <HeadingSmall
                         title="Profile information"
                         description="Update your name and email address"
