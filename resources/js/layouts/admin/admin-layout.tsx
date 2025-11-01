@@ -10,6 +10,7 @@ export default function AdminLayout({ children }: PropsWithChildren) {
                     <Link href="/admin/technicians" className="rounded px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800">Technicians</Link>
                     <Link href="/admin/reviews" className="rounded px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800">Reviews</Link>
                     <Link href="/admin/logs" className="rounded px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800">Logs</Link>
+                    <Link href="/settings/profile" className="rounded px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800">Settings</Link>
                 </nav>
             </aside>
             <main className="flex min-w-0 flex-1 flex-col">
@@ -18,14 +19,9 @@ export default function AdminLayout({ children }: PropsWithChildren) {
                     <button 
                         onClick={(e) => {
                             e.preventDefault();
-                            router.post('/logout', {}, {
-                                preserveScroll: false,
-                                preserveState: false,
-                                onSuccess: () => {
-                                    // Force full page reload to get fresh CSRF token
-                                    window.location.href = '/';
-                                },
-                            });
+                            ;(window as any).__loggingOut = true
+                            const meta = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null
+                            window.location.href = '/logout'
                         }}
                         className="rounded border px-3 py-1 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800"
                     >

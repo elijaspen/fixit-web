@@ -13,7 +13,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { LayoutGrid, Users, FileText, Settings as SettingsIcon, FolderOpen } from 'lucide-react';
+import { LayoutGrid, Users, FileText, Settings as SettingsIcon } from 'lucide-react';
 
 const adminNavItems: NavItem[] = [
     {
@@ -48,13 +48,7 @@ const adminNavItems: NavItem[] = [
     },
 ];
 
-const footerNavItems: NavItem[] = [
-    {
-        title: 'Repository',
-        href: 'https://github.com/laravel/react-starter-kit',
-        icon: FolderOpen,
-    },
-];
+const footerNavItems: NavItem[] = [];
 
 export function AdminSidebar() {
     return (
@@ -67,7 +61,7 @@ export function AdminSidebar() {
                                 <img 
                                     src="/images/fixitlogo.png" 
                                     alt="FixIt" 
-                                    className="h-16 w-16 object-contain" 
+                                    className="h-20 w-20 object-contain" 
                                 />
                             </Link>
                         </SidebarMenuButton>

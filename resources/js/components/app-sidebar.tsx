@@ -14,7 +14,7 @@ import { dashboard } from '@/routes';
 import * as profile from '@/routes/profile';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid, MessageSquare, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutGrid, MessageSquare, Settings as SettingsIcon } from 'lucide-react';
 
 const mainNavItems: NavItem[] = [
     {
@@ -29,23 +29,12 @@ const mainNavItems: NavItem[] = [
     },
     {
         title: 'Settings',
-        href: profile.edit(),
+        href: '/settings/profile',
         icon: SettingsIcon,
     },
 ];
 
-const footerNavItems: NavItem[] = [
-    {
-        title: 'Repository',
-        href: 'https://github.com/laravel/react-starter-kit',
-        icon: Folder,
-    },
-    {
-        title: 'Documentation',
-        href: 'https://laravel.com/docs/starter-kits#react',
-        icon: BookOpen,
-    },
-];
+const footerNavItems: NavItem[] = [];
 
 export function AppSidebar() {
     return (
@@ -58,7 +47,7 @@ export function AppSidebar() {
                                 <img 
                                     src="/images/fixitlogo.png" 
                                     alt="FixIt" 
-                                    className="h-16 w-16 object-contain" 
+                                    className="h-20 w-20 object-contain" 
                                 />
                             </Link>
                         </SidebarMenuButton>

@@ -19,6 +19,7 @@ class Customer extends Authenticatable
         'password',
         'phone',
         'address',
+        'avatar_path',
         'latitude',
         'longitude',
     ];

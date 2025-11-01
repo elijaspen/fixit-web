@@ -61,13 +61,7 @@ const getSettingsNavItems = (role?: string): NavItem[] => {
     return items;
 };
 
-const footerNavItems: NavItem[] = [
-    {
-        title: 'Repository',
-        href: 'https://github.com/laravel/react-starter-kit',
-        icon: FolderOpen,
-    },
-];
+const footerNavItems: NavItem[] = [];
 
 export function SettingsSidebar() {
     const page = usePage<SharedData>();
@@ -84,7 +78,7 @@ export function SettingsSidebar() {
                                 <img 
                                     src="/images/fixitlogo.png" 
                                     alt="FixIt" 
-                                    className="h-16 w-16 object-contain" 
+                                    className="h-20 w-20 object-contain" 
                                 />
                             </Link>
                         </SidebarMenuButton>

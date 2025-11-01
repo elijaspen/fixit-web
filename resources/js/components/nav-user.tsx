@@ -15,11 +15,31 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { type SharedData } from '@/types';
 import { usePage } from '@inertiajs/react';
 import { ChevronsUpDown } from 'lucide-react';
+import { useEffect, useState } from 'react'
+import axios from '@/axios-config'
 
 export function NavUser() {
     const { auth } = usePage<SharedData>().props;
     const { state } = useSidebar();
     const isMobile = useIsMobile();
+    const [displayUser, setDisplayUser] = useState(auth.user)
+
+    useEffect(() => {
+        let mounted = true
+        ;(async () => {
+            try {
+                const role = (usePage as any)()?.props?.role || undefined
+                const endpoint = role === 'technician' ? '/api/technician/me' : role === 'customer' ? '/api/customer/me' : role === 'admin' ? '/api/admin/me' : null
+                if (endpoint) {
+                    const res = await axios.get(endpoint)
+                    if (mounted && res.data?.avatar_path) {
+                        setDisplayUser({ ...auth.user, avatar: `/storage/${res.data.avatar_path}` } as any)
+                    }
+                }
+            } catch {}
+        })()
+        return () => { mounted = false }
+    }, [auth.user])
 
     return (
         <SidebarMenu>
@@ -31,7 +51,7 @@ export function NavUser() {
                             className="group text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent"
                             data-test="sidebar-menu-button"
                         >
-                            <UserInfo user={auth.user} />
+                            <UserInfo user={displayUser} />
                             <ChevronsUpDown className="ml-auto size-4" />
                         </SidebarMenuButton>
                     </DropdownMenuTrigger>
@@ -46,7 +66,7 @@ export function NavUser() {
                                   : 'bottom'
                         }
                     >
-                        <UserMenuContent user={auth.user} />
+                        <UserMenuContent user={displayUser} />
                     </DropdownMenuContent>
                 </DropdownMenu>
             </SidebarMenuItem>

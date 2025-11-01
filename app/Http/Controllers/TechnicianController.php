@@ -32,7 +32,7 @@ class TechnicianController extends Controller
 
         $technicians = $query
             ->where('is_verified', true) // Only show verified technicians
-            ->select('id', 'first_name', 'last_name', 'email', 'phone', 'address', 'latitude', 'longitude', 'expertise', 'services', 'base_pricing', 'standard_rate', 'professional_rate', 'premium_rate', 'availability_notes', 'license_image_path', 'certificates_image_path', 'created_at')
+            ->select('id', 'first_name', 'last_name', 'email', 'phone', 'address', 'latitude', 'longitude', 'expertise', 'services', 'base_pricing', 'standard_rate', 'professional_rate', 'premium_rate', 'availability_notes', 'license_image_path', 'certificates_image_path', 'avatar_path', 'created_at')
             ->get()
             ->map(function ($t) {
                 // Ensure accessor 'name' is present for frontend
@@ -56,7 +56,7 @@ class TechnicianController extends Controller
         $technicianData = $technician->only([
             'id', 'name', 'email', 'phone', 'address', 'latitude', 'longitude',
             'expertise', 'services', 'base_pricing', 'standard_rate', 'professional_rate', 'premium_rate',
-            'availability_notes', 'license_image_path', 'certificates_image_path', 'created_at'
+            'availability_notes', 'license_image_path', 'certificates_image_path', 'avatar_path', 'created_at'
         ]);
         
         // Include components

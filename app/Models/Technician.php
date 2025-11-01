@@ -30,6 +30,7 @@ class Technician extends Authenticatable
         'availability_notes',
         'license_image_path',
         'certificates_image_path',
+        'avatar_path',
         'is_verified',
     ];
 
