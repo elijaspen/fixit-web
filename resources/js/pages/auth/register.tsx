@@ -37,12 +37,12 @@ export default function Register() {
     return (
         <>
             <AuthNavbar />
-            <AuthLayout
-                title="Create an account"
-                description="Enter your details below to create your account"
-                sideImageSrc={sideImageSrc}
-            >
-                <Head title="Register" />
+        <AuthLayout
+            title="Create an account"
+            description="Enter your details below to create your account"
+            sideImageSrc={sideImageSrc}
+        >
+            <Head title="Register" />
                 <form
                     onSubmit={e => {
                         e.preventDefault();
@@ -50,11 +50,11 @@ export default function Register() {
                             onSuccess: () => router.visit('/dashboard')
                         });
                     }}
-                    className="flex flex-col gap-6"
-                >
-                    {role && (
-                        <input type="hidden" name="role" value={role} />
-                    )}
+                className="flex flex-col gap-6"
+            >
+                        {role && (
+                            <input type="hidden" name="role" value={role} />
+                        )}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label htmlFor="first_name">First Name</Label>
@@ -73,7 +73,7 @@ export default function Register() {
                             <InputError message={errors.last_name} className="mt-2" />
                         </div>
                     </div>
-                    <div className="grid gap-2">
+                            <div className="grid gap-2">
                         <Label htmlFor="address">Address</Label>
                         <Input id="address" type="text" name="address" required autoComplete="street-address" placeholder="Address" maxLength={100} tabIndex={3}
                             value={data.address}
@@ -87,52 +87,52 @@ export default function Register() {
                             <Input id="expertise" type="text" name="expertise" required placeholder="Specialization (e.g., Mobile Repair)" maxLength={100} tabIndex={4}
                                 value={data.expertise}
                                 onChange={e => setData('expertise', e.target.value)}
-                            />
+                                />
                             <InputError message={errors.expertise} className="mt-2" />
-                        </div>
+                            </div>
                     )}
-                    <div className="grid gap-2">
-                        <Label htmlFor="email">Email address</Label>
+                            <div className="grid gap-2">
+                                <Label htmlFor="email">Email address</Label>
                         <Input id="email" type="email" name="email" required tabIndex={5} autoComplete="email" placeholder="email@example.com"
                             value={data.email}
                             onChange={e => setData('email', e.target.value)}
-                        />
-                        <InputError message={errors.email} />
-                    </div>
-                    <div className="grid gap-2">
-                        <Label htmlFor="password">Password</Label>
+                                />
+                                <InputError message={errors.email} />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="password">Password</Label>
                         <Input id="password" type="password" name="password" required tabIndex={6} autoComplete="new-password" placeholder="Password"
                             value={data.password}
                             onChange={e => setData('password', e.target.value)}
-                        />
-                        <InputError message={errors.password} />
-                    </div>
-                    <div className="grid gap-2">
+                                />
+                                <InputError message={errors.password} />
+                            </div>
+                            <div className="grid gap-2">
                         <Label htmlFor="password_confirmation">Confirm password</Label>
                         <Input id="password_confirmation" type="password" name="password_confirmation" required tabIndex={7} autoComplete="new-password" placeholder="Confirm password"
                             value={data.password_confirmation}
                             onChange={e => setData('password_confirmation', e.target.value)}
-                        />
+                                />
                         <InputError message={errors.password_confirmation} />
-                    </div>
-                    <Button
-                        type="submit"
-                        className="mt-2 w-full"
+                            </div>
+                            <Button
+                                type="submit"
+                                className="mt-2 w-full"
                         tabIndex={8}
-                        data-test="register-user-button"
+                                data-test="register-user-button"
                         disabled={processing}
-                    >
-                        {processing && <Spinner />}
-                        Create account
-                    </Button>
-                    <div className="text-center text-sm text-muted-foreground">
-                        Already have an account?{' '}
+                            >
+                                {processing && <Spinner />}
+                                Create account
+                            </Button>
+                        <div className="text-center text-sm text-muted-foreground">
+                            Already have an account?{' '}
                         <TextLink href={role === 'technician' ? '/auth/technician/login' : role === 'customer' ? '/auth/customer/login' : '/auth/login'} tabIndex={9}>
-                            Log in
-                        </TextLink>
-                    </div>
+                                Log in
+                            </TextLink>
+                        </div>
                 </form>
             </AuthLayout>
-        </>
+                    </>
     );
 }

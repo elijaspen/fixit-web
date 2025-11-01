@@ -21,13 +21,15 @@ export default function Welcome({
                 />
             </Head>
             <div
-                className="flex min-h-screen flex-col items-center p-6 pt-24 text-[#1b1b18] lg:justify-center lg:p-8 lg:pt-28"
+                className="relative flex min-h-screen flex-col items-center p-6 pt-24 lg:justify-center lg:p-8 lg:pt-28"
                 style={{
                     backgroundImage: "url('/images/landingpagepic.jpg')",
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
+                    backgroundAttachment: 'fixed',
                 }}
             >
+                <div className="absolute inset-0 bg-black/45" aria-hidden="true" />
                 <header className="fixed left-0 right-0 top-0 z-30 w-full border-b border-white/10 bg-black/50 text-sm backdrop-blur supports-[backdrop-filter]:backdrop-blur-md not-has-[nav]:hidden">
                     <nav className="flex w-full items-center justify-between gap-4 px-3 py-3 text-white md:px-4 lg:px-6">
                         <Link href={home()} className="flex items-center gap-2 pl-0 text-white">
@@ -38,8 +40,8 @@ export default function Welcome({
                         <div className="ml-auto flex items-center gap-6 pr-0">
                             <div className="hidden items-center gap-6 text-white md:flex">
                                 <Link href={home()} className="hover:underline">Home</Link>
-                                <Link href="#contact" className="hover:underline">Contact Us</Link>
                                 <Link href="#about" className="hover:underline">About Us</Link>
+                                <Link href="#contact" className="hover:underline">Contact Us</Link>
                             </div>
                             <div className="flex items-center gap-3">
                             {auth.user ? (
@@ -71,8 +73,8 @@ export default function Welcome({
                         </div>
                     </nav>
                 </header>
-                <div className="flex w-full items-center justify-start lg:grow">
-                    <main className="w-full max-w-3xl px-4 pl-6 md:pl-12 text-left text-white">
+                <div className="relative flex w-full items-center justify-start lg:grow min-h-screen">
+                    <main className="relative z-10 w-full max-w-3xl px-4 pl-6 md:pl-12 text-left text-white">
                         <h1 className="mb-4 text-3xl font-semibold leading-tight sm:text-4xl md:text-5xl">
                             Experience-free gadget repair services from trusted professionals, anytime and anywhere with FixIt.
                         </h1>
@@ -840,7 +842,77 @@ export default function Welcome({
                     </main>
                 </div>
                 <div className="hidden h-14.5 lg:block"></div>
+                {/* About Us */}
+                <section id="about" className="relative w-full min-h-screen flex items-center text-white">
+                    <div className="relative z-10 mx-auto max-w-5xl px-6">
+                        <h2 className="text-2xl font-semibold">About Us</h2>
+                        <p className="mt-2 text-sm text-white/90">
+                            FixIt connects customers with verified technicians for fast, reliable gadget repairs.
+                            Our mission is to make device repair simple, transparent, and trustworthy.
+                        </p>
+                        <div className="mt-6 grid gap-4 md:grid-cols-3">
+                            <div className="rounded-lg border border-white/30 bg-transparent p-4">
+                                <h3 className="text-sm font-semibold">Verified Technicians</h3>
+                                <p className="mt-1 text-sm text-white/80">Every technician is vetted with licenses and certificates.</p>
+                            </div>
+                            <div className="rounded-lg border border-white/30 bg-transparent p-4">
+                                <h3 className="text-sm font-semibold">Transparent Pricing</h3>
+                                <p className="mt-1 text-sm text-white/80">Clear rates and itemized receipts for every job.</p>
+                            </div>
+                            <div className="rounded-lg border border-white/30 bg-transparent p-4">
+                                <h3 className="text-sm font-semibold">Secure Messaging</h3>
+                                <p className="mt-1 text-sm text-white/80">Coordinate details and share photos safely in-app.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Contact Us */}
+                <section id="contact" className="relative w-full text-white min-h-screen flex items-center">
+                    <div className="relative z-10 mx-auto max-w-5xl px-6">
+                        <h2 className="text-2xl font-semibold">Contact Us</h2>
+                        <p className="mt-2 text-sm text-white/90">Have questions or feedback? We’d love to hear from you.</p>
+                        <div className="mt-6 grid gap-6 md:grid-cols-2">
+                            <form
+                                className="space-y-3 rounded-lg border border-white/30 bg-transparent p-4"
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    const data = new FormData(e.currentTarget as HTMLFormElement)
+                                    const name = encodeURIComponent(String(data.get('name') || ''))
+                                    const email = encodeURIComponent(String(data.get('email') || ''))
+                                    const message = encodeURIComponent(String(data.get('message') || ''))
+                                    window.location.href = `mailto:support@fixit.com?subject=FixIt%20Inquiry%20from%20${name}&body=${message}%0A%0AFrom:%20${email}`
+                                }}
+                            >
+                                <div>
+                                    <label className="block text-sm font-medium" htmlFor="name">Your Name</label>
+                                    <input id="name" name="name" className="mt-1 w-full rounded border border-white/30 bg-transparent px-3 py-2 text-sm text-white placeholder:text-white/60" required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium" htmlFor="email">Email</label>
+                                    <input id="email" name="email" type="email" className="mt-1 w-full rounded border border-white/30 bg-transparent px-3 py-2 text-sm text-white placeholder:text-white/60" required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium" htmlFor="message">Message</label>
+                                    <textarea id="message" name="message" className="mt-1 w-full rounded border border-white/30 bg-transparent px-3 py-2 text-sm text-white placeholder:text-white/60" rows={4} required />
+                                </div>
+                                <Button type="submit" className="mt-2">Send</Button>
+                            </form>
+                            <div className="rounded-lg border border-white/30 bg-transparent p-4 text-sm text-white/90">
+                                <div>
+                                    <div className="font-medium text-white">Email</div>
+                                    <a href="mailto:support@fixit.com" className="text-blue-300 hover:underline">support@fixit.com</a>
+                                </div>
+                                <div className="mt-3">
+                                    <div className="font-medium text-white">Address</div>
+                                    <p>Sibalom, Antique</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
             </div>
+            {/* Footer removed for consistency */}
         </>
     );
 }

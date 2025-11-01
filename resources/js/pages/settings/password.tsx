@@ -31,7 +31,7 @@ export default function Password() {
         <SettingsSidebarLayout breadcrumbs={breadcrumbs}>
             <Head title="Password settings" />
 
-            <div className="space-y-6">
+                <div className="space-y-6">
                     <HeadingSmall
                         title="Update password"
                         description="Ensure your account is using a long, random password to stay secure"

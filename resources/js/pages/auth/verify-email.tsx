@@ -30,8 +30,11 @@ export default function VerifyEmail({ status }: { status?: string }) {
                             Resend verification email
                         </Button>
 
+                        {/* Use POST method for logout to include CSRF and avoid 419 */}
                         <TextLink
                             href={logout()}
+                            as="button"
+                            method="post"
                             className="mx-auto block text-sm"
                         >
                             Log out

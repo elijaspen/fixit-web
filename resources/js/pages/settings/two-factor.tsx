@@ -46,7 +46,7 @@ export default function TwoFactor({
     return (
         <SettingsSidebarLayout breadcrumbs={breadcrumbs}>
             <Head title="Two-Factor Authentication" />
-            <div className="space-y-6">
+                <div className="space-y-6">
                     <HeadingSmall
                         title="Two-Factor Authentication"
                         description="Manage your two-factor authentication settings"

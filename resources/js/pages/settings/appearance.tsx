@@ -23,7 +23,7 @@ export default function Appearance() {
         <SettingsSidebarLayout breadcrumbs={breadcrumbs}>
             <Head title="Appearance settings" />
 
-            <div className="space-y-6">
+                <div className="space-y-6">
                     <HeadingSmall
                         title="Appearance settings"
                         description="Update your account's appearance settings"

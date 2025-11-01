@@ -18,83 +18,13 @@ export default function LoginPage() {
         setError(null)
         setLoading(true)
         try {
-            // Try customer first, then technician, then admin
-            try {
-                const customerResponse = await axios.post('/auth/customer/login', { email, password })
-                if (customerResponse.status === 200) {
-                    // Update CSRF token from response header (check both cases)
-                    const newToken = customerResponse.headers['x-csrf-token'] || customerResponse.headers['X-CSRF-TOKEN']
-                    if (newToken) {
-                        const meta = document.querySelector('meta[name="csrf-token"]')
-                        if (meta) meta.setAttribute('content', newToken)
-                        localStorage.setItem('csrf_token', newToken)
-                    }
-                    // Navigate directly - Inertia will sync auth state
-                    router.visit('/dashboard', { preserveScroll: false })
-                    return
-                }
-            } catch (customerErr: unknown) {
-                // Check if it's a 419 CSRF error that was retried
-                const customerError = customerErr as { response?: { status?: number; data?: { message?: string; errors?: Record<string, string[]> } }; config?: { _retry?: boolean } }
-                if (customerError?.response?.status === 419 && customerError?.config?._retry) {
-                    // CSRF retry failed, show error
-                    setError('CSRF token expired. Please try again.')
-                    setLoading(false)
-                    return
-                }
-                // Try technician
-                try {
-                    const techResponse = await axios.post('/auth/technician/login', { email, password })
-                    if (techResponse.status === 200) {
-                        const newToken = techResponse.headers['x-csrf-token'] || techResponse.headers['X-CSRF-TOKEN']
-                        if (newToken) {
-                            const meta = document.querySelector('meta[name="csrf-token"]')
-                            if (meta) meta.setAttribute('content', newToken)
-                            localStorage.setItem('csrf_token', newToken)
-                        }
-                        router.visit('/dashboard', { preserveScroll: false })
-                        return
-                    }
-                } catch (technicianErr: unknown) {
-                    const technicianError = technicianErr as { response?: { status?: number; data?: { message?: string; errors?: Record<string, string[]> } }; config?: { _retry?: boolean } }
-                    if (technicianError?.response?.status === 419 && technicianError?.config?._retry) {
-                        setError('CSRF token expired. Please try again.')
-                        setLoading(false)
-                        return
-                    }
-                    // Try admin
-                    try {
-                        const adminResponse = await axios.post('/auth/admin/login', { email, password })
-                        if (adminResponse.status === 200) {
-                            const newToken = adminResponse.headers['x-csrf-token'] || adminResponse.headers['X-CSRF-TOKEN']
-                            if (newToken) {
-                                const meta = document.querySelector('meta[name="csrf-token"]')
-                                if (meta) meta.setAttribute('content', newToken)
-                                localStorage.setItem('csrf_token', newToken)
-                            }
-                            router.visit('/admin', { preserveScroll: false })
-                            return
-                        }
-                    } catch (adminErr: unknown) {
-                        const adminError = adminErr as { response?: { status?: number; data?: { message?: string; errors?: Record<string, string[]> } }; config?: { _retry?: boolean } }
-                        if (adminError?.response?.status === 419 && adminError?.config?._retry) {
-                            setError('CSRF token expired. Please try again.')
-                            setLoading(false)
-                            return
-                        }
-                        // All failed - show appropriate error
-                        const errors = adminError?.response?.data?.errors || technicianError?.response?.data?.errors || customerError?.response?.data?.errors
-                        if (errors) {
-                            const firstError = Object.values(errors)[0] as string[]
-                            setError(firstError?.[0] || 'Validation failed')
-                        } else {
-                            const errorMsg = adminError?.response?.data?.message || technicianError?.response?.data?.message || customerError?.response?.data?.message || 'Invalid email or password'
-                            setError(errorMsg)
-                        }
-                        setLoading(false)
-                        return
-                    }
-                }
+            const res = await axios.post('/auth/login/unified', { email, password })
+            // If admin, go to admin index; else dashboard
+            const role = (res.data?.role as string | undefined) || null
+            if (role === 'admin') {
+                router.visit('/admin', { preserveScroll: false })
+            } else {
+                router.visit('/dashboard', { preserveScroll: false })
             }
         } catch (err: unknown) {
             const error = err as { response?: { data?: { message?: string } } }
