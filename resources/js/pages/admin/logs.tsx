@@ -100,12 +100,12 @@ export default function AdminLogsPage() {
                                             <div className="font-medium">{sr.completed_at ? new Date(sr.completed_at).toLocaleString() : '-'}</div>
                                         </div>
                                         <div>
-                                            <div className="text-neutral-500">Fee Method</div>
-                                            <div className="font-medium">{sr.booking_fee_payment_method ?? '-'}</div>
+                                            <div className="text-neutral-500">Booking Fee Paid At</div>
+                                            <div className="font-medium">{sr.booking_fee_paid_at ? new Date(sr.booking_fee_paid_at).toLocaleString() : '-'}</div>
                                         </div>
                                         <div>
-                                            <div className="text-neutral-500">Fee Reference</div>
-                                            <div className="font-medium">{sr.booking_fee_reference ?? '-'}</div>
+                                            <div className="text-neutral-500">Total Amount</div>
+                                            <div className="font-medium">₱{(Number(sr.amount || 0) + Number(sr.booking_fee_total || 0)).toFixed(2)}</div>
                                         </div>
                                     </div>
                                     <div className="mt-3 flex justify-end gap-2">
@@ -187,7 +187,7 @@ export default function AdminLogsPage() {
                                     </div>
                                     <div className="flex justify-between font-semibold">
                                         <div>Total</div>
-                                        <div>₱{Number(viewing.amount || 0).toFixed(2)}</div>
+                                        <div>₱{(Number(viewing.amount || 0) + Number(viewing.booking_fee_total || 0)).toFixed(2)}</div>
                                     </div>
                                 </div>
 
@@ -195,16 +195,24 @@ export default function AdminLogsPage() {
                                     <div className="text-xs font-medium text-neutral-600">Attachments</div>
                                     {Array.isArray(viewing.receipt_attachments) && viewing.receipt_attachments.length > 0 ? (
                                         <div className="grid grid-cols-2 gap-2">
-                                            {viewing.receipt_attachments.map((p, idx) => {
-                                                const isPdf = p.toLowerCase().endsWith('.pdf')
+                                            {viewing.receipt_attachments.map((att: string | { path: string; uploaded_by_type?: string }, idx: number) => {
+                                                // Handle both old format (string) and new format (object)
+                                                const path = typeof att === 'string' ? att : att.path
+                                                const uploadedByType = typeof att === 'object' ? (att.uploaded_by_type || 'technician') : 'technician'
+                                                const isPdf = path.toLowerCase().endsWith('.pdf')
                                                 return (
-                                                    <div key={idx} className="border rounded p-2">
+                                                    <div key={idx} className="border rounded p-2 relative">
                                                         {isPdf ? (
-                                                            <a className="text-primary underline" href={`/storage/${p}`} target="_blank" rel="noreferrer">Open PDF (Attachment {idx+1})</a>
+                                                            <a className="text-primary underline" href={`/storage/${path}`} target="_blank" rel="noreferrer">Open PDF (Attachment {idx+1})</a>
                                                         ) : (
-                                                            <a href={`/storage/${p}`} target="_blank" rel="noreferrer">
-                                                                <img src={`/storage/${p}`} alt={`Attachment ${idx+1}`} className="h-32 w-full object-cover rounded" />
+                                                            <a href={`/storage/${path}`} target="_blank" rel="noreferrer">
+                                                                <img src={`/storage/${path}`} alt={`Attachment ${idx+1}`} className="h-32 w-full object-cover rounded" />
                                                             </a>
+                                                        )}
+                                                        {uploadedByType === 'technician' && (
+                                                            <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] px-1 py-0.5 rounded-b">
+                                                                Uploaded by Technician
+                                                            </div>
                                                         )}
                                                     </div>
                                                 )

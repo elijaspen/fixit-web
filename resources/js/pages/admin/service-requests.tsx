@@ -1,5 +1,5 @@
 import AdminLayout from '@/layouts/admin-layout'
-import { Head } from '@inertiajs/react'
+import { Head, router } from '@inertiajs/react'
 import { useCallback, useEffect, useState } from 'react'
 import axios from '@/axios-config'
 import { Card } from '@/components/ui/card'
@@ -47,7 +47,8 @@ export default function AdminServiceRequestsPage() {
             params.page = page
             const r = await axios.get('/api/admin/service-requests', { params })
             const payload = r.data
-            setRequests(payload.data || payload)
+            const updatedRequests = payload.data || payload
+            setRequests(updatedRequests)
             if (payload.current_page) {
                 setLastPage(payload.last_page || 1)
             }
@@ -140,32 +141,64 @@ export default function AdminServiceRequestsPage() {
                                         <div className="flex flex-col gap-2 md:flex-row md:justify-end">
                                             <Button size="sm" className="h-8 px-3" onClick={() => setViewing(sr)}>View Receipt</Button>
                                             <Button size="sm" variant="outline" className="h-8 px-3" onClick={() => (document.getElementById(`sr-upload-${sr.id}`) as HTMLInputElement)?.click()}>Upload Receipt</Button>
-                                            <Button size="sm" className="h-8 px-3" onClick={async () => {
-                                                if (!confirm('Mark this service request as completed?')) return
-                                                await axios.patch(`/api/admin/service-requests/${sr.id}/complete`)
-                                                load()
-                                            }}>Mark as Completed</Button>
+                                            {sr.booking_fee_status === 'unpaid' && (
+                                                <Button 
+                                                    size="sm" 
+                                                    variant="outline" 
+                                                    className="h-8 px-3 border-green-300 text-green-700 hover:bg-green-50"
+                                                    onClick={async () => {
+                                                        if (!confirm('Mark booking fee as paid?')) return
+                                                        // Refresh CSRF token from meta tag before request
+                                                        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                                                        if (csrfToken) {
+                                                            localStorage.setItem('csrf_token', csrfToken)
+                                                        }
+                                                        try {
+                                                            await axios.post(`/api/admin/service-requests/${sr.id}/booking-fee/mark-received`, {}, {
+                                                                headers: {
+                                                                    'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
+                                                                }
+                                                            })
+                                                            load()
+                                                        } catch (err: unknown) {
+                                                            const error = err as { response?: { status?: number; data?: { message?: string } } }
+                                                            if (error.response?.status === 419) {
+                                                                // Retry with fresh token
+                                                                const freshToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                                                                if (freshToken) {
+                                                                    try {
+                                                                        await axios.post(`/api/admin/service-requests/${sr.id}/booking-fee/mark-received`, {}, {
+                                                                            headers: {
+                                                                                'X-CSRF-TOKEN': freshToken
+                                                                            }
+                                                                        })
+                                                                        load()
+                                                                    } catch (retryErr) {
+                                                                        alert('Session expired. Please refresh the page.')
+                                                                    }
+                                                                } else {
+                                                                    alert('Session expired. Please refresh the page.')
+                                                                }
+                                                            } else {
+                                                                alert(error.response?.data?.message || 'Failed to mark booking fee as paid')
+                                                            }
+                                                        }
+                                                    }}
+                                                >
+                                                    Mark Fee Paid
+                                                </Button>
+                                            )}
                                             {sr.status === 'completed' && (
-                                                <Button size="sm" variant="ghost" className="h-8 px-3" onClick={() => {
-                                                    const lines = [
-                                                        `Service Request #${sr.id} — Completion Log`,
-                                                        `Created At: ${sr.created_at}`,
-                                                        `Completed At: ${sr.completed_at ?? '-'}`,
-                                                        `Customer: ${sr.customer?.name ?? '-'}`,
-                                                        `Technician: ${sr.technician?.name ?? '-'}`,
-                                                        `Amount: ₱${Number(sr.amount || 0).toFixed(2)}`,
-                                                        `Booking Fee Status: ${sr.booking_fee_status}`,
-                                                        `Booking Fee Total: ₱${Number(sr.booking_fee_total || 0).toFixed(2)}`,
-                                                        `Booking Fee Paid At: ${sr.booking_fee_paid_at ?? '-'}`,
-                                                        `Booking Fee Method: ${sr.booking_fee_payment_method ?? '-'}`,
-                                                        `Booking Fee Reference: ${sr.booking_fee_reference ?? '-'}`,
-                                                        `Receipt Attachments: ${(sr.receipt_attachments?.length ?? 0)} file(s)`,
-                                                    ].join('\n')
-                                                    const blob = new Blob([lines], { type: 'text/plain;charset=utf-8' })
-                                                    const url = URL.createObjectURL(blob)
-                                                    window.open(url, '_blank')
-                                                    setTimeout(() => URL.revokeObjectURL(url), 30_000)
-                                                }}>Logs</Button>
+                                                <Button 
+                                                    size="sm" 
+                                                    variant="ghost" 
+                                                    className="h-8 px-3" 
+                                                    onClick={() => {
+                                                        router.visit(`/admin/logs?sr=${sr.id}`)
+                                                    }}
+                                                >
+                                                    Logs
+                                                </Button>
                                             )}
                                         </div>
                                         <input
@@ -175,15 +208,32 @@ export default function AdminServiceRequestsPage() {
                                             accept=".jpg,.jpeg,.png,.pdf"
                                             style={{ display: 'none' }}
                                             onChange={async (e) => {
-                                                const files = e.currentTarget.files
+                                                const inputEl = e.currentTarget as HTMLInputElement
+                                                const files = inputEl.files
                                                 if (!files || files.length === 0) return
+                                                // Cache reference before async operation
+                                                const inputId = `sr-upload-${sr.id}`
                                                 const form = new FormData()
                                                 Array.from(files).slice(0,5).forEach(f => form.append('files[]', f))
                                                 try {
-                                                    await axios.post(`/api/service-requests/${sr.id}/receipts`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+                                                    // Refresh CSRF token before request
+                                                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                                                    if (csrfToken) {
+                                                        localStorage.setItem('csrf_token', csrfToken)
+                                                    }
+                                                    await axios.post(`/api/service-requests/${sr.id}/receipts`, form, { 
+                                                        headers: { 
+                                                            'Content-Type': 'multipart/form-data',
+                                                            'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
+                                                        } 
+                                                    })
                                                     load()
                                                 } finally {
-                                                    e.currentTarget.value = ''
+                                                    // Reset input value using cached ID
+                                                    const resetInput = document.getElementById(inputId) as HTMLInputElement
+                                                    if (resetInput) {
+                                                        resetInput.value = ''
+                                                    }
                                                 }
                                             }}
                                         />
@@ -198,14 +248,30 @@ export default function AdminServiceRequestsPage() {
                         <Button size="sm" variant="outline" disabled={page >= lastPage || loading} onClick={() => setPage(p => Math.min(lastPage, p + 1))}>Next</Button>
                     </div>
                 </Card>
-                <AdminServiceRequestsViewReceiptModal viewing={viewing} onClose={() => setViewing(null)} />
+                <AdminServiceRequestsViewReceiptModal 
+                    viewing={viewing} 
+                    onClose={() => setViewing(null)} 
+                    onUpdate={(updated) => {
+                        setViewing(updated)
+                        // Reload the list in the background to keep everything in sync
+                        load()
+                    }} 
+                />
             </div>
         </AdminLayout>
     )
 }
 
 // View Receipt Modal rendered at root to avoid grid nesting issues
-export function AdminServiceRequestsViewReceiptModal({ viewing, onClose }: { viewing: ServiceRequest | null; onClose: () => void }) {
+export function AdminServiceRequestsViewReceiptModal({ 
+    viewing, 
+    onClose,
+    onUpdate 
+}: { 
+    viewing: ServiceRequest | null
+    onClose: () => void
+    onUpdate: (updated: ServiceRequest) => void 
+}) {
     return (
         <Dialog open={!!viewing} onOpenChange={(open) => !open && onClose()}>
             <DialogContent>
@@ -278,7 +344,7 @@ export function AdminServiceRequestsViewReceiptModal({ viewing, onClose }: { vie
                                 </div>
                                 <div className="flex justify-between font-semibold">
                                     <div>Total</div>
-                                    <div>₱{Number(viewing.amount || 0).toFixed(2)}</div>
+                                    <div>₱{(Number(viewing.amount || 0) + Number(viewing.booking_fee_total || 0)).toFixed(2)}</div>
                                 </div>
                             </div>
 
@@ -289,16 +355,70 @@ export function AdminServiceRequestsViewReceiptModal({ viewing, onClose }: { vie
                                 </div>
                                 {Array.isArray(viewing.receipt_attachments) && viewing.receipt_attachments.length > 0 ? (
                                     <div className="grid grid-cols-2 gap-2">
-                                        {viewing.receipt_attachments.map((p: string, i: number) => {
-                                            const isPdf = p.toLowerCase().endsWith('.pdf')
+                                        {viewing.receipt_attachments.map((att: string | { path: string; uploaded_by_type?: string }, i: number) => {
+                                            // Handle both old format (string) and new format (object)
+                                            const path = typeof att === 'string' ? att : att.path
+                                            const uploadedByType = typeof att === 'object' ? (att.uploaded_by_type || 'technician') : 'technician'
+                                            const isPdf = path.toLowerCase().endsWith('.pdf')
+                                            const canRemove = uploadedByType === 'admin' // Admin can only remove their own uploads
                                             return (
-                                                <div key={i} className="border rounded p-2">
+                                                <div key={i} className="border rounded p-2 relative">
                                                     {isPdf ? (
-                                                        <a className="text-primary underline" href={`/storage/${p}`} target="_blank" rel="noreferrer">Open PDF (Attachment {i+1})</a>
+                                                        <a className="text-primary underline" href={`/storage/${path}`} target="_blank" rel="noreferrer">Open PDF (Attachment {i+1})</a>
                                                     ) : (
-                                                        <a href={`/storage/${p}`} target="_blank" rel="noreferrer">
-                                                            <img src={`/storage/${p}`} alt={`Attachment ${i+1}`} className="h-32 w-full object-cover rounded" />
+                                                        <a href={`/storage/${path}`} target="_blank" rel="noreferrer">
+                                                            <img src={`/storage/${path}`} alt={`Attachment ${i+1}`} className="h-32 w-full object-cover rounded" />
                                                         </a>
+                                                    )}
+                                                    {canRemove && (
+                                                        <button
+                                                            type="button"
+                                                            className="absolute -top-2 -right-2 rounded-full bg-red-600 text-white p-1 text-[10px] hover:bg-red-700"
+                                                            title="Remove attachment"
+                                                            onClick={async () => {
+                                                                if (!confirm('Remove this attachment?')) return
+                                                                try {
+                                                                    // Refresh CSRF token before request
+                                                                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                                                                    if (csrfToken) {
+                                                                        localStorage.setItem('csrf_token', csrfToken)
+                                                                    }
+                                                                    // Send path as query parameter for DELETE requests
+                                                                    const response = await axios.delete(`/api/service-requests/${viewing.id}/receipts?path=${encodeURIComponent(path)}`, {
+                                                                        headers: {
+                                                                            'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
+                                                                        }
+                                                                    })
+                                                                    // Update viewing state immediately with the response data - attachment disappears right away!
+                                                                    if (viewing && response.data?.attachments !== undefined) {
+                                                                        const updated = { ...viewing, receipt_attachments: response.data.attachments }
+                                                                        onUpdate(updated)
+                                                                    } else if (viewing) {
+                                                                        // Fallback: remove from current state if response doesn't have attachments
+                                                                        const updated = { 
+                                                                            ...viewing, 
+                                                                            receipt_attachments: (viewing.receipt_attachments || []).filter((a: string | { path: string }) => {
+                                                                                const p = typeof a === 'string' ? a : a.path
+                                                                                return p !== path
+                                                                            }) 
+                                                                        }
+                                                                        onUpdate(updated)
+                                                                    }
+                                                                } catch (err: unknown) {
+                                                                    const error = err as { response?: { status?: number; data?: { message?: string; error?: string } } }
+                                                                    console.error('Delete attachment error:', error, 'Full error:', err)
+                                                                    const errorMessage = error.response?.data?.message || error.response?.data?.error || `Failed to remove attachment (${error.response?.status || 'unknown error'}). Please try again.`
+                                                                    alert(errorMessage)
+                                                                }
+                                                            }}
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    )}
+                                                    {uploadedByType === 'technician' && (
+                                                        <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] px-1 py-0.5 rounded-b">
+                                                            Uploaded by Technician
+                                                        </div>
                                                     )}
                                                 </div>
                                             )

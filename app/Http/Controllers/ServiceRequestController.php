@@ -19,11 +19,11 @@ class ServiceRequestController extends Controller
             // rate_tier is optional now
             'rate_tier' => ['nullable', 'in:normal,standard,advanced,base'],
             // Negotiated receipt fields (tech-generated)
-            'receipt_items' => ['nullable', 'array'],
-            'receipt_items.*.desc' => ['required_with:receipt_items', 'string', 'max:255'],
-            'receipt_items.*.qty' => ['required_with:receipt_items', 'numeric', 'min:0'],
-            'receipt_items.*.unit_price' => ['required_with:receipt_items', 'numeric', 'min:0'],
-            'receipt_total' => ['nullable', 'numeric', 'min:0'],
+            'receipt_items' => ['required', 'array', 'min:1'],
+            'receipt_items.*.desc' => ['required', 'string', 'max:255'],
+            'receipt_items.*.qty' => ['required', 'numeric', 'min:0'],
+            'receipt_items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'receipt_total' => ['required', 'numeric', 'min:0'],
             'receipt_notes' => ['nullable', 'string', 'max:2000'],
             'customer_notes' => ['nullable', 'string', 'max:1000'],
             // Booking fee complexity selector (simple/standard/complex)
@@ -31,21 +31,31 @@ class ServiceRequestController extends Controller
         ]);
 
         $customer = $request->user('customer');
-        if (!$customer) {
-            throw ValidationException::withMessages(['auth' => 'Must be logged in as customer']);
+        $technician = $request->user('technician');
+        
+        if (!$customer && !$technician) {
+            throw ValidationException::withMessages(['auth' => 'Must be logged in as customer or technician']);
         }
 
-        $conversation = Conversation::with('technician')->findOrFail($validated['conversation_id']);
+        $conversation = Conversation::with(['technician', 'customer'])->findOrFail($validated['conversation_id']);
 
-        // Verify conversation belongs to customer
-        if ($conversation->customer_id !== $customer->id) {
+        // Verify conversation belongs to customer OR technician
+        if ($customer && $conversation->customer_id !== $customer->id) {
+            abort(403, 'Unauthorized');
+        }
+        if ($technician && $conversation->technician_id !== $technician->id) {
             abort(403, 'Unauthorized');
         }
 
         // Determine amount
         $amount = 0;
         $rateTier = $validated['rate_tier'] ?? null;
-        if ($rateTier) {
+        
+        // If receipt_total is provided (technician generating receipt), use it directly
+        if (isset($validated['receipt_total']) && $validated['receipt_total'] !== null) {
+            $amount = (float) $validated['receipt_total'];
+        } elseif ($rateTier) {
+            // Otherwise, calculate from rate tier (customer selecting tier)
             if ($rateTier === 'normal' && $conversation->technician->standard_rate) {
                 $amount = $conversation->technician->standard_rate;
             } elseif ($rateTier === 'standard' && $conversation->technician->professional_rate) {
@@ -59,22 +69,21 @@ class ServiceRequestController extends Controller
             }
         }
 
-        // If a negotiated receipt is provided, trust the receipt_total (validated)
-        if (array_key_exists('receipt_total', $validated) && $validated['receipt_total'] !== null) {
-            $amount = (float) $validated['receipt_total'];
-        }
+        // Check if there's already a pending or active (non-completed) service request
+        // Only block customers - technicians can create multiple new receipts (new service requests)
+        if ($customer) {
+            $existing = ServiceRequest::where('conversation_id', $conversation->id)
+                ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
+                ->first();
 
-        // Check if there's already a pending service request
-        $existing = ServiceRequest::where('conversation_id', $conversation->id)
-            ->where('status', 'pending')
-            ->first();
-
-        if ($existing) {
-            return response()->json([
-                'message' => 'You already have a pending service request for this conversation',
-                'service_request' => $existing,
-            ], 422);
+            if ($existing) {
+                return response()->json([
+                    'message' => 'You already have an active service request for this conversation. Please complete or cancel it first.',
+                    'service_request' => $existing,
+                ], 422);
+            }
         }
+        // Technicians can always create new service requests (new receipts) even if active ones exist
 
         // Compute booking fee from complexity selection
         $complexity = $validated['booking_fee_complexity'] ?? 'standard';
@@ -83,12 +92,14 @@ class ServiceRequestController extends Controller
 
         $serviceRequest = ServiceRequest::create([
             'conversation_id' => $conversation->id,
-            'customer_id' => $customer->id,
+            'customer_id' => $conversation->customer_id,
             'technician_id' => $conversation->technician_id,
             'rate_tier' => $rateTier,
             'amount' => $amount,
             'status' => 'pending',
             'payment_status' => 'unpaid',
+            'customer_payment_status' => 'unpaid',
+            'customer_payment_method' => null,
             'customer_notes' => $validated['customer_notes'] ?? null,
             // booking fee
             'booking_fee_net' => $bookingFee,
@@ -96,10 +107,11 @@ class ServiceRequestController extends Controller
             'booking_fee_total' => $bookingFee,
             'booking_fee_complexity' => $complexity,
             'booking_fee_status' => 'unpaid',
-            // receipt details
-            'receipt_items' => $validated['receipt_items'] ?? null,
-            'receipt_total' => array_key_exists('receipt_total', $validated) ? $validated['receipt_total'] : null,
+            // receipt details (new receipt, no attachments)
+            'receipt_items' => $validated['receipt_items'],
+            'receipt_total' => $validated['receipt_total'],
             'receipt_notes' => $validated['receipt_notes'] ?? null,
+            'receipt_attachments' => null, // New receipt has no attachments
         ]);
 
         // Update conversation consultation fee
@@ -163,26 +175,20 @@ class ServiceRequestController extends Controller
     }
 
     /**
-     * Complete a service request (requires booking fee paid)
+     * Complete a service request (technicians can mark as completed)
      */
     public function complete(Request $request, ServiceRequest $serviceRequest)
     {
-        $admin = $request->user('admin');
-        if (!$admin) {
-            abort(403);
+        $technician = $request->user('technician');
+        if (!$technician || $serviceRequest->technician_id !== $technician->id) {
+            abort(403, 'Only the assigned technician can mark as completed');
         }
 
-        if ($serviceRequest->booking_fee_status !== 'paid') {
+        // Allow completion if status is in_progress, confirmed, or already completed (idempotent)
+        $allowedStatuses = ['in_progress', 'confirmed', 'completed'];
+        if (!in_array($serviceRequest->status, $allowedStatuses)) {
             throw ValidationException::withMessages([
-                'booking_fee' => 'Booking fee must be paid before completing the job.',
-            ]);
-        }
-
-        // Require at least one receipt attachment for admin verification
-        $attachments = $serviceRequest->receipt_attachments ?? [];
-        if (empty($attachments) || count($attachments) === 0) {
-            throw ValidationException::withMessages([
-                'receipts' => 'Please ensure a receipt/screenshot is uploaded before completion.',
+                'status' => 'Service request must be in progress or confirmed before completion.',
             ]);
         }
 
@@ -214,15 +220,30 @@ class ServiceRequestController extends Controller
             'receipt_items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'receipt_total' => ['required', 'numeric', 'min:0'],
             'receipt_notes' => ['nullable', 'string', 'max:2000'],
+            'booking_fee_complexity' => ['nullable', 'in:simple,standard,complex'],
         ]);
 
-        $serviceRequest->update([
+        // Update booking fee if complexity is provided
+        $updateData = [
             'receipt_items' => $validated['receipt_items'],
             'receipt_total' => $validated['receipt_total'],
             'receipt_notes' => $validated['receipt_notes'] ?? null,
             // Keep main amount in sync with receipt total
             'amount' => $validated['receipt_total'],
-        ]);
+        ];
+
+        if (isset($validated['booking_fee_complexity'])) {
+            $complexity = $validated['booking_fee_complexity'];
+            $fees = config('billing.booking_fee');
+            $bookingFee = $fees[$complexity] ?? ($fees['standard'] ?? 20.0);
+            
+            $updateData['booking_fee_complexity'] = $complexity;
+            $updateData['booking_fee_net'] = $bookingFee;
+            $updateData['booking_fee_vat'] = 0;
+            $updateData['booking_fee_total'] = $bookingFee;
+        }
+
+        $serviceRequest->update($updateData);
 
         // Also reflect on conversation for consistency
         if ($serviceRequest->conversation_id) {
@@ -243,15 +264,18 @@ class ServiceRequestController extends Controller
      */
     public function uploadReceipts(Request $request, ServiceRequest $serviceRequest)
     {
-        $user = $request->user('technician') ?? $request->user('customer');
+        $user = $request->user('admin') ?? $request->user('technician') ?? $request->user('customer');
         if (!$user) {
             abort(401);
         }
-        if ($request->user('technician') && $serviceRequest->technician_id !== $request->user('technician')->id) {
-            abort(403);
-        }
-        if ($request->user('customer') && $serviceRequest->customer_id !== $request->user('customer')->id) {
-            abort(403);
+        // Admin can upload to any service request
+        if (!$request->user('admin')) {
+            if ($request->user('technician') && $serviceRequest->technician_id !== $request->user('technician')->id) {
+                abort(403);
+            }
+            if ($request->user('customer') && $serviceRequest->customer_id !== $request->user('customer')->id) {
+                abort(403);
+            }
         }
 
         $validated = $request->validate([
@@ -259,18 +283,40 @@ class ServiceRequestController extends Controller
             'files.*' => ['file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'], // 5MB
         ]);
 
-        $paths = $serviceRequest->receipt_attachments ?? [];
+        $attachments = $serviceRequest->receipt_attachments ?? [];
+        
+        // Determine uploader info
+        $uploaderType = null;
+        $uploaderId = null;
+        if ($request->user('admin')) {
+            $uploaderType = 'admin';
+            $uploaderId = $request->user('admin')->id;
+        } elseif ($request->user('technician')) {
+            $uploaderType = 'technician';
+            $uploaderId = $request->user('technician')->id;
+        } elseif ($request->user('customer')) {
+            $uploaderType = 'customer';
+            $uploaderId = $request->user('customer')->id;
+        }
+        
         foreach ($request->file('files', []) as $file) {
-            $paths[] = $file->store('receipts', 'public');
+            $filePath = $file->store('receipts', 'public');
+            // Store as object with metadata for ownership tracking
+            $attachments[] = [
+                'path' => $filePath,
+                'uploaded_by_type' => $uploaderType,
+                'uploaded_by_id' => $uploaderId,
+                'uploaded_at' => now()->toIso8601String(),
+            ];
         }
 
         $serviceRequest->update([
-            'receipt_attachments' => $paths,
+            'receipt_attachments' => $attachments,
         ]);
 
         return response()->json([
             'message' => 'Receipts uploaded',
-            'attachments' => $paths,
+            'attachments' => $attachments,
         ]);
     }
 
@@ -279,23 +325,86 @@ class ServiceRequestController extends Controller
      */
     public function removeReceipt(Request $request, ServiceRequest $serviceRequest)
     {
-        $user = $request->user('technician') ?? $request->user('customer');
+        $user = $request->user('admin') ?? $request->user('technician') ?? $request->user('customer');
         if (!$user) {
             abort(401);
         }
-        if ($request->user('technician') && $serviceRequest->technician_id !== $request->user('technician')->id) {
-            abort(403);
-        }
-        if ($request->user('customer') && $serviceRequest->customer_id !== $request->user('customer')->id) {
-            abort(403);
-        }
 
-        $data = $request->validate([
-            'path' => ['required', 'string'],
-        ]);
+        // Accept path from query parameter or request body (for DELETE requests)
+        // Laravel validation automatically checks both query and body
+        $path = $request->input('path') ?? $request->query('path');
+        if (!$path) {
+            abort(422, 'Path parameter is required');
+        }
+        $data = ['path' => $path];
 
-        $paths = $serviceRequest->receipt_attachments ?? [];
-        $new = array_values(array_filter($paths, fn($p) => $p !== $data['path']));
+        $attachments = $serviceRequest->receipt_attachments ?? [];
+        $admin = $request->user('admin');
+        $technician = $request->user('technician');
+        $customer = $request->user('customer');
+        
+        // Find the attachment to remove (normalize path for comparison)
+        $targetPath = urldecode($data['path']); // Decode in case it was URL encoded
+        $attachmentToRemove = null;
+        foreach ($attachments as $att) {
+            // Handle both old format (string) and new format (object)
+            $path = is_string($att) ? $att : ($att['path'] ?? null);
+            // Compare paths (normalize both for comparison)
+            $normalizedPath = urldecode(str_replace('\\', '/', $path));
+            $normalizedTarget = urldecode(str_replace('\\', '/', $targetPath));
+            if ($normalizedPath === $normalizedTarget || $path === $targetPath) {
+                $attachmentToRemove = $att;
+                break;
+            }
+        }
+        
+        if (!$attachmentToRemove) {
+            abort(404, 'Attachment not found. Path: ' . $targetPath);
+        }
+        
+        // Determine uploader info from attachment
+        $uploadedByType = null;
+        $uploadedById = null;
+        if (is_array($attachmentToRemove)) {
+            $uploadedByType = $attachmentToRemove['uploaded_by_type'] ?? null;
+            $uploadedById = $attachmentToRemove['uploaded_by_id'] ?? null;
+        }
+        
+        // If attachment has no metadata (old format), assume it was uploaded by technician
+        if (!$uploadedByType) {
+            $uploadedByType = 'technician';
+        }
+        
+        // Authorization: Admin cannot remove technician uploads
+        if ($admin && $uploadedByType === 'technician') {
+            abort(403, 'Admin cannot remove technician uploads');
+        }
+        
+        // Technicians and customers can only remove their own uploads
+        if (!$admin) {
+            if ($technician && $uploadedByType !== 'technician') {
+                abort(403, 'You can only remove your own uploads');
+            }
+            if ($technician && $serviceRequest->technician_id !== $technician->id) {
+                abort(403);
+            }
+            if ($customer && $uploadedByType !== 'customer') {
+                abort(403, 'You can only remove your own uploads');
+            }
+            if ($customer && $serviceRequest->customer_id !== $customer->id) {
+                abort(403);
+            }
+        }
+        
+        // Remove the attachment (use normalized path for comparison)
+        $targetPath = urldecode($data['path']);
+        $new = array_values(array_filter($attachments, function($att) use ($targetPath) {
+            $path = is_string($att) ? $att : ($att['path'] ?? null);
+            $normalizedPath = urldecode(str_replace('\\', '/', $path));
+            $normalizedTarget = urldecode(str_replace('\\', '/', $targetPath));
+            return $normalizedPath !== $normalizedTarget && $path !== $targetPath;
+        }));
+        
         $serviceRequest->update(['receipt_attachments' => $new]);
 
         return response()->json([
@@ -407,6 +516,18 @@ class ServiceRequestController extends Controller
         if ($request->has('status')) {
             $query->where('status', $request->get('status'));
         }
+        
+        // Filter out fully completed requests (both completed AND booking fee paid) - these are done and don't need admin action
+        // Only show if they're either not completed, or completed but booking fee still unpaid (needs admin action)
+        if (!$request->has('status') && !$request->boolean('outstanding_fees')) {
+            $query->where(function($q) {
+                $q->where('status', '!=', 'completed')
+                  ->orWhere(function($subQ) {
+                      $subQ->where('status', 'completed')
+                           ->where('booking_fee_status', 'unpaid');
+                  });
+            });
+        }
 
         return response()->json($query->paginate(20));
     }
@@ -439,13 +560,11 @@ class ServiceRequestController extends Controller
             $updates['service_date'] = $validated['service_date'];
         }
 
-        // Technicians cannot mark completed; admins do via separate endpoint
-
         $serviceRequest->update($updates);
 
         return response()->json([
             'message' => 'Service request updated',
-            'service_request' => $serviceRequest->fresh(['customer:id,first_name,last_name,name']),
+            'service_request' => $serviceRequest->fresh(['customer:id,first_name,last_name,email,phone']),
         ]);
     }
 
