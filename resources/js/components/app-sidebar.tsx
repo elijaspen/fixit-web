@@ -14,29 +14,49 @@ import { dashboard } from '@/routes';
 import * as profile from '@/routes/profile';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { LayoutGrid, MessageSquare, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutGrid, MessageSquare, Settings as SettingsIcon, FileText } from 'lucide-react';
+import { usePage } from '@inertiajs/react';
+import { type SharedData } from '@/types';
 
-const mainNavItems: NavItem[] = [
-    {
-        title: 'Home',
-        href: dashboard(),
-        icon: LayoutGrid,
-    },
-    {
-        title: 'Messages',
-        href: '/messages',
-        icon: MessageSquare,
-    },
-    {
+const getMainNavItems = (role?: string): NavItem[] => {
+    const items: NavItem[] = [
+        {
+            title: 'Home',
+            href: dashboard(),
+            icon: LayoutGrid,
+        },
+        {
+            title: 'Messages',
+            href: '/messages',
+            icon: MessageSquare,
+        },
+    ];
+
+    // Add Service Requests link for technicians
+    if (role === 'technician') {
+        items.push({
+            title: 'Service Requests',
+            href: '/technician/service-requests',
+            icon: FileText,
+        });
+    }
+
+    items.push({
         title: 'Settings',
         href: '/settings/profile',
         icon: SettingsIcon,
-    },
-];
+    });
+
+    return items;
+};
 
 const footerNavItems: NavItem[] = [];
 
 export function AppSidebar() {
+    const page = usePage<SharedData>();
+    const role = (page.props as unknown as { auth?: { role?: string } }).auth?.role as string | undefined;
+    const mainNavItems = getMainNavItems(role);
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>

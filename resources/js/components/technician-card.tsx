@@ -21,6 +21,11 @@ interface TechnicianCardProps {
 export function TechnicianCard({ technician, rating = 0, ratingCount = 0, onViewProfile }: TechnicianCardProps) {
     const handleMessage = async () => {
         try {
+            // Ensure we have the latest CSRF token from meta tag
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+            if (csrfToken) {
+                localStorage.setItem('csrf_token', csrfToken)
+            }
             const response = await axios.post('/api/conversations', { technician_id: technician.id })
             // Redirect to messages with the conversation ID to auto-select it
             router.visit(`/messages?conversation=${response.data.id}`, { 
@@ -28,6 +33,12 @@ export function TechnicianCard({ technician, rating = 0, ratingCount = 0, onView
             })
         } catch (error) {
             console.error('Error creating conversation:', error)
+            const err = error as { response?: { status?: number; data?: { message?: string } } }
+            if (err.response?.status === 419) {
+                alert('Session expired. Please refresh the page and try again.')
+            } else {
+                alert(err.response?.data?.message || 'Failed to create conversation. Please try again.')
+            }
         }
     }
 

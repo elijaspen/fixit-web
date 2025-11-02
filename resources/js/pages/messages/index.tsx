@@ -189,7 +189,22 @@ export default function MessagesPage() {
         }
         
         // mark as read on open
-        axios.post(`/api/conversations/${conversationId}/read`).catch(()=>{})
+        const markRead = async () => {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+            if (csrfToken) {
+                localStorage.setItem('csrf_token', csrfToken)
+            }
+            try {
+                await axios.post(`/api/conversations/${conversationId}/read`, {}, {
+                    headers: {
+                        'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
+                    }
+                })
+            } catch {
+                // Silently fail for read marks
+            }
+        }
+        markRead()
         
         if (!echo) {
             // Websocket not initialized; skip realtime but keep UI working
@@ -218,7 +233,21 @@ export default function MessagesPage() {
     useEffect(() => {
         if (!active) return
         const conversationId = active.id
-        const onFocus = () => axios.post(`/api/conversations/${conversationId}/read`).catch(()=>{})
+        const onFocus = async () => {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+            if (csrfToken) {
+                localStorage.setItem('csrf_token', csrfToken)
+            }
+            try {
+                await axios.post(`/api/conversations/${conversationId}/read`, {}, {
+                    headers: {
+                        'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
+                    }
+                })
+            } catch {
+                // Silently fail for read marks
+            }
+        }
         window.addEventListener('focus', onFocus)
         return () => window.removeEventListener('focus', onFocus)
     }, [active])
@@ -318,39 +347,6 @@ export default function MessagesPage() {
                                                 {isTechnician ? (active.customer?.name || 'Customer') : (active.technician?.name || 'Technician')}
                                             </h2>
                                         </div>
-                                        <div className="flex flex-col items-stretch gap-2 md:flex-row md:items-center md:gap-3">
-                                            {isTechnician && active.technician_id && (
-                                                (!serviceRequest || !(serviceRequest.receipt_items && serviceRequest.receipt_items.length > 0)) ? (
-                                                    <Button 
-                                                        onClick={() => {
-                                                            setEditingReceipt(false)
-                                                            setReceiptItems([{ desc: '', qty: 1, unit_price: 0 }])
-                                                            setReceiptNotes('')
-                                                            setOpenReceiptModal(true)
-                                                        }}
-                                                        size="sm"
-                                                        className="whitespace-nowrap"
-                                                    >
-                                                        Generate Receipt
-                                                    </Button>
-                                                ) : (
-                                                    <Button 
-                                                        onClick={() => {
-                                                            setEditingReceipt(true)
-                                                            // Prefill from existing receipt
-                                                            const items = serviceRequest?.receipt_items ?? [{ desc: '', qty: 1, unit_price: 0 }]
-                                                            setReceiptItems(items.map(i => ({ desc: i.desc, qty: Number(i.qty||0), unit_price: Number(i.unit_price||0) })))
-                                                            setReceiptNotes(serviceRequest?.receipt_notes ?? '')
-                                                            setOpenReceiptModal(true)
-                                                        }}
-                                                        size="sm"
-                                                        className="whitespace-nowrap"
-                                                    >
-                                                        Edit Receipt
-                                                    </Button>
-                                                )
-                                            )}
-                                        </div>
                                     </div>
                                     {/* Hiding quick-book panel for streamlined professional view */}
                                     {serviceRequest && (
@@ -359,6 +355,25 @@ export default function MessagesPage() {
                                                 {/* Details hidden for minimal professional view */}
                                             </div>
                                             <div className="ml-auto flex flex-wrap items-center gap-2">
+                                                {isTechnician && serviceRequest.receipt_items && serviceRequest.receipt_items.length > 0 && (
+                                                    <Button 
+                                                        onClick={() => {
+                                                            setEditingReceipt(true)
+                                                            // Prefill from existing receipt
+                                                            const items = serviceRequest?.receipt_items ?? [{ desc: '', qty: 1, unit_price: 0 }]
+                                                            setReceiptItems(items.map(i => ({ desc: i.desc, qty: Number(i.qty||0), unit_price: Number(i.unit_price||0) })))
+                                                            setReceiptNotes(serviceRequest?.receipt_notes ?? '')
+                                                            // Prefill booking fee complexity
+                                                            setFeeComplexity((serviceRequest?.booking_fee_complexity || 'standard') as 'simple' | 'standard' | 'complex')
+                                                            setOpenReceiptModal(true)
+                                                        }}
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="whitespace-nowrap"
+                                                    >
+                                                        Edit Receipt
+                                                    </Button>
+                                                )}
                                                 {isTechnician && (
                                                     <>
                                                         <input
@@ -373,7 +388,17 @@ export default function MessagesPage() {
                                                                 const form = new FormData()
                                                                 Array.from(files).slice(0,5).forEach(f => form.append('files[]', f))
                                                                 try {
-                                                                    await axios.post(`/api/service-requests/${serviceRequest.id}/receipts`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+                                                                    // Refresh CSRF token before request
+                                                                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                                                                    if (csrfToken) {
+                                                                        localStorage.setItem('csrf_token', csrfToken)
+                                                                    }
+                                                                    await axios.post(`/api/service-requests/${serviceRequest.id}/receipts`, form, { 
+                                                                        headers: { 
+                                                                            'Content-Type': 'multipart/form-data',
+                                                                            'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
+                                                                        } 
+                                                                    })
                                                                     // Refresh SR
                                                                     const r = await axios.get(`/api/conversations/${active?.id}/service-requests`)
                                                                     const requests: ServiceRequest[] = r.data
@@ -535,14 +560,15 @@ export default function MessagesPage() {
             </div>
         </AppLayout>
 
+        {/* Edit Receipt Modal */}
         <Dialog open={openReceiptModal} onOpenChange={(open) => {
             if (!open) setEditingReceipt(false)
             setOpenReceiptModal(open)
         }}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>{editingReceipt ? 'Edit Receipt' : 'Generate Receipt'}</DialogTitle>
-                    <DialogDescription>{editingReceipt ? 'Update existing receipt items and notes.' : 'Fill in items and booking fee, then create the receipt.'}</DialogDescription>
+                    <DialogTitle>Edit Receipt</DialogTitle>
+                    <DialogDescription>Update existing receipt items and notes.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                     <div className="grid grid-cols-12 gap-2 text-sm font-medium text-neutral-500">
@@ -600,45 +626,42 @@ export default function MessagesPage() {
                 <DialogFooter>
                     <Button variant="outline" onClick={() => setOpenReceiptModal(false)}>Cancel</Button>
                     <Button onClick={async () => {
-                        if (!active) return
+                        if (!active || !serviceRequest) return
                         const total = receiptItems.reduce((sum, it) => sum + (Number(it.qty || 0) * Number(it.unit_price || 0)), 0)
                         // simple client validation
                         if (total <= 0) { alert('Total must be greater than 0'); return }
                         if (receiptItems.some(it => !it.desc.trim())) { alert('Every item needs a description'); return }
                         try {
-                            if (editingReceipt && serviceRequest) {
-                                const res = await axios.patch(`/api/service-requests/${serviceRequest.id}/receipt`, {
-                                    receipt_items: receiptItems,
-                                    receipt_total: total,
-                                    receipt_notes: receiptNotes || undefined,
-                                })
-                                setServiceRequest(res.data.service_request)
-                                // announce update
-                                await axios.post(`/api/conversations/${active.id}/messages`, { body: `Receipt updated • New total ₱${total.toFixed(2)}` })
-                            } else {
-                                const res = await axios.post('/api/service-requests', {
-                                    conversation_id: active.id,
-                                    receipt_items: receiptItems,
-                                    receipt_total: total,
-                                    receipt_notes: receiptNotes || undefined,
-                                    booking_fee_complexity: feeComplexity,
-                                    rate_tier: selectedRate || undefined,
-                                })
-                                setServiceRequest(res.data.service_request)
-                                // announce creation
-                                await axios.post(`/api/conversations/${active.id}/messages`, { body: `🧾 Receipt generated • Total ₱${total.toFixed(2)} • Booking fee: ${feeComplexity}` })
+                            // Refresh CSRF token before request
+                            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                            if (csrfToken) {
+                                localStorage.setItem('csrf_token', csrfToken)
                             }
+                            // Update existing receipt
+                            const res = await axios.patch(`/api/service-requests/${serviceRequest.id}/receipt`, {
+                                receipt_items: receiptItems,
+                                receipt_total: total,
+                                receipt_notes: receiptNotes || undefined,
+                                booking_fee_complexity: feeComplexity,
+                            }, {
+                                headers: {
+                                    'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
+                                }
+                            })
+                            setServiceRequest(res.data.service_request)
+                            // Announce update
+                            await axios.post(`/api/conversations/${active.id}/messages`, { body: `Receipt updated • New total ₱${total.toFixed(2)}` })
                             setOpenReceiptModal(false)
                             setReceiptItems([{ desc: '', qty: 1, unit_price: 0 }])
                             setReceiptNotes('')
                             axios.get(`/api/conversations/${active.id}/messages`).then(r => setMessages(r.data))
                         } catch (error) {
                             const err = error as { response?: { data?: { message?: string } } }
-                            alert(err?.response?.data?.message || 'Failed to create receipt')
+                            alert(err?.response?.data?.message || 'Failed to update receipt')
                         }
                     }}
                     disabled={receiptItems.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.unit_price || 0)), 0) <= 0 || receiptItems.some(it => !it.desc.trim())}
-                    >{editingReceipt ? 'Save Changes' : 'Create'}</Button>
+                    >Save Changes</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -664,6 +687,7 @@ export default function MessagesPage() {
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Official Receipt</DialogTitle>
+                    <DialogDescription>View the official receipt for this service request.</DialogDescription>
                 </DialogHeader>
                 <div ref={receiptRef} className="space-y-4 text-sm">
                     {/* Header */}
@@ -748,7 +772,17 @@ export default function MessagesPage() {
                                             const form = new FormData()
                                             Array.from(files).slice(0,5).forEach(f => form.append('files[]', f))
                                             try {
-                                                await axios.post(`/api/service-requests/${serviceRequest.id}/receipts`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+                                                // Refresh CSRF token before request
+                                                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                                                if (csrfToken) {
+                                                    localStorage.setItem('csrf_token', csrfToken)
+                                                }
+                                                await axios.post(`/api/service-requests/${serviceRequest.id}/receipts`, form, { 
+                                                    headers: { 
+                                                        'Content-Type': 'multipart/form-data',
+                                                        'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
+                                                    } 
+                                                })
                                                 // Refresh SR to show newly uploaded attachments
                                                 axios.get(`/api/conversations/${active?.id}/service-requests`).then(r => {
                                                     const requests: ServiceRequest[] = r.data
@@ -772,25 +806,40 @@ export default function MessagesPage() {
                         </div>
                         {serviceRequest?.receipt_attachments && serviceRequest.receipt_attachments.length > 0 ? (
                             <div className="grid grid-cols-2 gap-2">
-                                {serviceRequest.receipt_attachments.map((p: string, i: number) => {
-                                    const isPdf = p.toLowerCase().endsWith('.pdf')
+                                {serviceRequest.receipt_attachments.map((att: string | { path: string; uploaded_by_type?: string }, i: number) => {
+                                    // Handle both old format (string) and new format (object)
+                                    const path = typeof att === 'string' ? att : att.path
+                                    const uploadedByType = typeof att === 'object' ? (att.uploaded_by_type || 'technician') : 'technician'
+                                    const isPdf = path.toLowerCase().endsWith('.pdf')
+                                    // Technicians can remove their own uploads, customers can remove theirs
+                                    const canRemove = isTechnician && uploadedByType === 'technician'
                                     return (
                                         <div key={i} className="border rounded p-2 relative">
                                             {isPdf ? (
-                                                <a className="text-primary underline" href={`/storage/${p}`} target="_blank" rel="noreferrer">Open PDF (Attachment {i+1})</a>
+                                                <a className="text-primary underline" href={`/storage/${path}`} target="_blank" rel="noreferrer">Open PDF (Attachment {i+1})</a>
                                             ) : (
-                                                <a href={`/storage/${p}`} target="_blank" rel="noreferrer">
-                                                    <img src={`/storage/${p}`} alt={`Attachment ${i+1}`} className="h-32 w-full object-cover rounded" />
+                                                <a href={`/storage/${path}`} target="_blank" rel="noreferrer">
+                                                    <img src={`/storage/${path}`} alt={`Attachment ${i+1}`} className="h-32 w-full object-cover rounded" />
                                                 </a>
                                             )}
-                                            {isTechnician && (
+                                            {canRemove && (
                                                 <button
                                                     type="button"
-                                                    className="absolute -top-2 -right-2 rounded-full bg-red-600 text-white p-1 text-[10px]"
+                                                    className="absolute -top-2 -right-2 rounded-full bg-red-600 text-white p-1 text-[10px] hover:bg-red-700"
                                                     title="Remove attachment"
                                                     onClick={async () => {
                                                         try {
-                                                            await axios.delete(`/api/service-requests/${serviceRequest.id}/receipts`, { data: { path: p } })
+                                                            // Refresh CSRF token before request
+                                                            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                                                            if (csrfToken) {
+                                                                localStorage.setItem('csrf_token', csrfToken)
+                                                            }
+                                                            // Send path as query parameter for DELETE requests
+                                                            await axios.delete(`/api/service-requests/${serviceRequest.id}/receipts?path=${encodeURIComponent(path)}`, {
+                                                                headers: {
+                                                                    'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
+                                                                }
+                                                            })
                                                             // refresh by refetching SR list
                                                             const r = await axios.get(`/api/conversations/${active?.id}/service-requests`)
                                                             const requests: ServiceRequest[] = r.data
@@ -803,7 +852,7 @@ export default function MessagesPage() {
                                                         }
                                                     }}
                                                 >
-                                                    Remove
+                                                    ✕
                                                 </button>
                                             )}
                                         </div>

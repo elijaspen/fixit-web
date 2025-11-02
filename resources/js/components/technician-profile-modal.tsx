@@ -202,6 +202,11 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
 
     const handleMessage = async () => {
         try {
+            // Ensure we have the latest CSRF token from meta tag
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+            if (csrfToken) {
+                localStorage.setItem('csrf_token', csrfToken)
+            }
             const response = await axios.post('/api/conversations', { technician_id: technician.id })
             onOpenChange(false)
             // Redirect to messages with the conversation ID to auto-select it
@@ -210,6 +215,12 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
             })
         } catch (error) {
             console.error('Error creating conversation:', error)
+            const err = error as { response?: { status?: number; data?: { message?: string } } }
+            if (err.response?.status === 419) {
+                alert('Session expired. Please refresh the page and try again.')
+            } else {
+                alert(err.response?.data?.message || 'Failed to create conversation. Please try again.')
+            }
         }
     }
 

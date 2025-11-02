@@ -17,8 +17,6 @@ Route::middleware(['web'])->group(function () {
         Route::patch('technicians/{technician}/verification', [\App\Http\Controllers\Admin\TechnicianController::class, 'updateVerification']);
         Route::delete('technicians/{technician}', [\App\Http\Controllers\Admin\TechnicianController::class, 'destroy']);
         Route::get('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'adminIndex']);
-        // Admin completes SR after fee paid and receipts verified
-        Route::patch('service-requests/{serviceRequest}/complete', [\App\Http\Controllers\ServiceRequestController::class, 'complete']);
         // Admin marks booking fee as received (manual confirmation)
         Route::post('service-requests/{serviceRequest}/booking-fee/mark-received', [\App\Http\Controllers\ServiceRequestController::class, 'adminMarkBookingFeeReceived']);
         // Admin reviews listing (all)
@@ -83,8 +81,12 @@ Route::middleware(['web'])->group(function () {
         });
         
         Route::middleware(['auth:technician'])->group(function () {
+            // Technician can create service requests (for receipt generation on dashboard)
+            Route::post('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'create']);
             Route::get('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'index']);
             Route::patch('service-requests/{serviceRequest}/status', [\App\Http\Controllers\ServiceRequestController::class, 'updateStatus']);
+            // Technician marks service request as completed
+            Route::patch('service-requests/{serviceRequest}/complete', [\App\Http\Controllers\ServiceRequestController::class, 'complete']);
             // Technician sets customer payment (cash/gcash) status/method
             Route::patch('service-requests/{serviceRequest}/customer-payment', [\App\Http\Controllers\ServiceRequestController::class, 'updateCustomerPayment']);
             // Technician pays booking fee (method/reference)
@@ -101,12 +103,12 @@ Route::middleware(['web'])->group(function () {
             Route::get('technicians/me/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndexMe']);
         });
         
-        Route::middleware(['auth:customer,technician'])->group(function () {
+        Route::middleware(['auth:customer,technician,admin'])->group(function () {
             // Backward-compat: keep generic payment update if used elsewhere
             Route::patch('service-requests/{serviceRequest}/payment', [\App\Http\Controllers\ServiceRequestController::class, 'updatePayment']);
-            // Upload receipt attachments (tech/customer)
+            // Upload receipt attachments (tech/customer/admin)
             Route::post('service-requests/{serviceRequest}/receipts', [\App\Http\Controllers\ServiceRequestController::class, 'uploadReceipts']);
-            // Remove a specific receipt attachment (tech/customer)
+            // Remove a specific receipt attachment (tech/customer/admin)
             Route::delete('service-requests/{serviceRequest}/receipts', [\App\Http\Controllers\ServiceRequestController::class, 'removeReceipt']);
         });
 });

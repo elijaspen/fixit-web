@@ -46,6 +46,10 @@ Route::middleware([\App\Http\Middleware\MultiAuth::class])->group(function () {
     Route::get('technicians', function () {
         return Inertia::render('technicians/index');
     })->name('technicians.index');
+
+    Route::get('technician/service-requests', function () {
+        return Inertia::render('technician/service-requests');
+    })->name('technician.service-requests');
 });
 
 // Unified login page (no role selection)
