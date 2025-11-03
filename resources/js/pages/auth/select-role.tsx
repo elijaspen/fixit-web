@@ -50,7 +50,7 @@ export default function SelectRole() {
                                             <div className="mb-2 text-base font-semibold">{r.title}</div>
                                             <div className="text-sm text-muted-foreground">{r.description}</div>
                                         </div>
-                                        <Button className="mt-auto" variant="default">
+                                        <Button className="mt-auto bg-black hover:bg-black/90 text-white border border-black dark:border-white/20" variant="default">
                                             Continue
                                         </Button>
                                     </div>

@@ -117,7 +117,7 @@ export default function Register() {
                             </div>
                             <Button
                                 type="submit"
-                                className="mt-2 w-full"
+                                className="mt-2 w-full bg-black hover:bg-black/90 text-white border border-black dark:border-white/20"
                         tabIndex={8}
                                 data-test="register-user-button"
                         disabled={processing}
@@ -127,7 +127,7 @@ export default function Register() {
                             </Button>
                         <div className="text-center text-sm text-muted-foreground">
                             Already have an account?{' '}
-                        <TextLink href={role === 'technician' ? '/auth/technician/login' : role === 'customer' ? '/auth/customer/login' : '/auth/login'} tabIndex={9}>
+                        <TextLink href={role === 'technician' ? '/auth/technician/login' : role === 'customer' ? '/auth/customer/login' : '/auth/login'} tabIndex={9} className="!text-foreground font-medium">
                                 Log in
                             </TextLink>
                         </div>

@@ -66,14 +66,14 @@ export default function LoginPage() {
                             />
                         </div>
                         {error && (
-                            <div className="text-sm text-red-600">{error}</div>
+                            <div className="text-sm text-red-600 dark:text-red-400">{error}</div>
                         )}
-                        <Button type="submit" className="w-full" disabled={loading}>
+                        <Button type="submit" className="w-full bg-black hover:bg-black/90 text-white border border-black dark:border-white/20" disabled={loading}>
                             {loading ? 'Logging in...' : 'Log in'}
                         </Button>
                         <div className="text-center text-sm text-muted-foreground">
                             Don't have an account?{' '}
-                            <Link href="/auth/select-role?next=register" className="text-primary hover:underline">
+                            <Link href="/auth/select-role?next=register" className="text-foreground hover:underline font-medium">
                                 Register
                             </Link>
                         </div>

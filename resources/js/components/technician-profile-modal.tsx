@@ -7,6 +7,11 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
     Select,
     SelectContent,
     SelectItem,
@@ -16,7 +21,7 @@ import {
 import { Star, Mail, MapPin, Calendar, DollarSign, Briefcase, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/axios-config'
-import { router } from '@inertiajs/react'
+import { router, usePage } from '@inertiajs/react'
 
 interface TechnicianProfileModalProps {
     technician: {
@@ -51,6 +56,7 @@ interface TechnicianProfileModalProps {
 type PricingTier = 'normal' | 'standard' | 'advanced' | 'base'
 
 export function TechnicianProfileModal({ technician, rating = 0, open, onOpenChange }: TechnicianProfileModalProps) {
+    const page = usePage()
     const [showAvailability, setShowAvailability] = useState(false)
     const [month, setMonth] = useState<string>('') // YYYY-MM
     const [monthDays, setMonthDays] = useState<Array<{ date: string; status: 'available' | 'unavailable' }>>([])
@@ -202,12 +208,26 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
 
     const handleMessage = async () => {
         try {
-            // Ensure we have the latest CSRF token from meta tag
-            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-            if (csrfToken) {
+            // Get CSRF token from Inertia props (most reliable) or meta tag
+            const csrfToken = (page.props as { csrf?: string })?.csrf || 
+                             document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                             localStorage.getItem('csrf_token')
+            
+            // Update meta tag and localStorage if we got it from props
+            if (csrfToken && (page.props as { csrf?: string })?.csrf) {
+                const meta = document.querySelector('meta[name="csrf-token"]')
+                if (meta) {
+                    meta.setAttribute('content', csrfToken)
+                }
                 localStorage.setItem('csrf_token', csrfToken)
             }
-            const response = await axios.post('/api/conversations', { technician_id: technician.id })
+            
+            // Axios interceptor should handle CSRF, but we'll also explicitly set it
+            const response = await axios.post('/api/conversations', { technician_id: technician.id }, {
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken || ''
+                }
+            })
             onOpenChange(false)
             // Redirect to messages with the conversation ID to auto-select it
             router.visit(`/messages?conversation=${response.data.id}`, {
@@ -217,7 +237,34 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
             console.error('Error creating conversation:', error)
             const err = error as { response?: { status?: number; data?: { message?: string } } }
             if (err.response?.status === 419) {
-                alert('Session expired. Please refresh the page and try again.')
+                // Try to get fresh token from Inertia props or meta tag and retry once
+                const freshToken = (page.props as { csrf?: string })?.csrf || 
+                                  document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                if (freshToken) {
+                    try {
+                        // Update meta and localStorage
+                        const meta = document.querySelector('meta[name="csrf-token"]')
+                        if (meta) {
+                            meta.setAttribute('content', freshToken)
+                        }
+                        localStorage.setItem('csrf_token', freshToken)
+                        
+                        const retryResponse = await axios.post('/api/conversations', { technician_id: technician.id }, {
+                            headers: {
+                                'X-CSRF-TOKEN': freshToken
+                            }
+                        })
+                        onOpenChange(false)
+                        router.visit(`/messages?conversation=${retryResponse.data.id}`, {
+                            preserveScroll: false
+                        })
+                        return
+                    } catch (retryErr) {
+                        alert('Session expired. Please refresh the page and try again.')
+                    }
+                } else {
+                    alert('Session expired. Please refresh the page and try again.')
+                }
             } else {
                 alert(err.response?.data?.message || 'Failed to create conversation. Please try again.')
             }
@@ -226,7 +273,7 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Technician Profile</DialogTitle>
                     <DialogDescription>
@@ -285,6 +332,7 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setShowAvailability(!showAvailability)}
+                                className="!bg-black !hover:bg-gray-800 !text-white !hover:text-white border border-transparent dark:border-white/20 transition-colors"
                             >
                                 {showAvailability ? 'Hide Calendar' : 'Show Calendar'}
                             </Button>
@@ -531,11 +579,11 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
 
                     {/* Action Button */}
                     <div className="flex justify-end gap-2 pt-4 border-t">
-                        <Button variant="outline" onClick={() => onOpenChange(false)}>
+                        <Button onClick={() => onOpenChange(false)} className="bg-red-500 hover:bg-red-600 text-white">
                             Close
                         </Button>
-                        <Button onClick={handleMessage}>
-                            Message for Booking
+                        <Button onClick={handleMessage} className="bg-green-600 hover:bg-green-700 text-white">
+                            Book Now
                         </Button>
                     </div>
                 </div>

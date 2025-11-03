@@ -82,7 +82,7 @@ export default function Welcome({
                             Sign up and let FixIt bring your gadgets back to life.
                         </h2>
                         <Link href={selectRole.url({ query: { next: 'register' } })}>
-                            <Button size="lg" className="h-12 px-8 text-base font-semibold">
+                            <Button size="lg" className="h-12 px-8 text-base font-semibold bg-black/75 hover:bg-black/85">
                                 Get Started
                             </Button>
                         </Link>
@@ -843,38 +843,38 @@ export default function Welcome({
                 </div>
                 <div className="hidden h-14.5 lg:block"></div>
                 {/* About Us */}
-                <section id="about" className="relative w-full min-h-screen flex items-center text-white">
+                <section id="about" className="relative w-full min-h-screen flex items-center text-white py-20">
                     <div className="relative z-10 mx-auto max-w-5xl px-6">
-                        <h2 className="text-2xl font-semibold">About Us</h2>
+                        <h2 className="text-2xl font-semibold text-white">About Us</h2>
                         <p className="mt-2 text-sm text-white/90">
                             FixIt connects customers with verified technicians for fast, reliable gadget repairs.
                             Our mission is to make device repair simple, transparent, and trustworthy.
                         </p>
                         <div className="mt-6 grid gap-4 md:grid-cols-3">
-                            <div className="rounded-lg border border-white/30 bg-transparent p-4">
-                                <h3 className="text-sm font-semibold">Verified Technicians</h3>
-                                <p className="mt-1 text-sm text-white/80">Every technician is vetted with licenses and certificates.</p>
+                            <div className="rounded-lg border border-gray-300 bg-white p-4 shadow-sm">
+                                <h3 className="text-sm font-semibold text-gray-900">Verified Technicians</h3>
+                                <p className="mt-1 text-sm text-gray-700">Every technician is vetted with licenses and certificates.</p>
                             </div>
-                            <div className="rounded-lg border border-white/30 bg-transparent p-4">
-                                <h3 className="text-sm font-semibold">Transparent Pricing</h3>
-                                <p className="mt-1 text-sm text-white/80">Clear rates and itemized receipts for every job.</p>
+                            <div className="rounded-lg border border-gray-300 bg-white p-4 shadow-sm">
+                                <h3 className="text-sm font-semibold text-gray-900">Transparent Pricing</h3>
+                                <p className="mt-1 text-sm text-gray-700">Clear rates and itemized receipts for every job.</p>
                             </div>
-                            <div className="rounded-lg border border-white/30 bg-transparent p-4">
-                                <h3 className="text-sm font-semibold">Secure Messaging</h3>
-                                <p className="mt-1 text-sm text-white/80">Coordinate details and share photos safely in-app.</p>
+                            <div className="rounded-lg border border-gray-300 bg-white p-4 shadow-sm">
+                                <h3 className="text-sm font-semibold text-gray-900">Secure Messaging</h3>
+                                <p className="mt-1 text-sm text-gray-700">Coordinate details and share photos safely in-app.</p>
                             </div>
                         </div>
                     </div>
                 </section>
 
                 {/* Contact Us */}
-                <section id="contact" className="relative w-full text-white min-h-screen flex items-center">
+                <section id="contact" className="relative w-full text-white min-h-screen flex items-center py-20">
                     <div className="relative z-10 mx-auto max-w-5xl px-6">
-                        <h2 className="text-2xl font-semibold">Contact Us</h2>
-                        <p className="mt-2 text-sm text-white/90">Have questions or feedback? We’d love to hear from you.</p>
+                        <h2 className="text-2xl font-semibold text-white">Contact Us</h2>
+                        <p className="mt-2 text-sm text-white/90">Have questions or feedback? We'd love to hear from you.</p>
                         <div className="mt-6 grid gap-6 md:grid-cols-2">
                             <form
-                                className="space-y-3 rounded-lg border border-white/30 bg-transparent p-4"
+                                className="space-y-3 rounded-lg border border-gray-300 bg-white p-4 shadow-sm"
                                 onSubmit={(e) => {
                                     e.preventDefault();
                                     const data = new FormData(e.currentTarget as HTMLFormElement)
@@ -885,27 +885,27 @@ export default function Welcome({
                                 }}
                             >
                                 <div>
-                                    <label className="block text-sm font-medium" htmlFor="name">Your Name</label>
-                                    <input id="name" name="name" className="mt-1 w-full rounded border border-white/30 bg-transparent px-3 py-2 text-sm text-white placeholder:text-white/60" required />
+                                    <label className="block text-sm font-medium text-gray-900" htmlFor="name">Your Name</label>
+                                    <input id="name" name="name" className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500" required />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium" htmlFor="email">Email</label>
-                                    <input id="email" name="email" type="email" className="mt-1 w-full rounded border border-white/30 bg-transparent px-3 py-2 text-sm text-white placeholder:text-white/60" required />
+                                    <label className="block text-sm font-medium text-gray-900" htmlFor="email">Email</label>
+                                    <input id="email" name="email" type="email" className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500" required />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium" htmlFor="message">Message</label>
-                                    <textarea id="message" name="message" className="mt-1 w-full rounded border border-white/30 bg-transparent px-3 py-2 text-sm text-white placeholder:text-white/60" rows={4} required />
+                                    <label className="block text-sm font-medium text-gray-900" htmlFor="message">Message</label>
+                                    <textarea id="message" name="message" className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500" rows={4} required />
                                 </div>
-                                <Button type="submit" className="mt-2">Send</Button>
+                                <Button type="submit" className="mt-2 bg-black hover:bg-black/90 text-white">Send</Button>
                             </form>
-                            <div className="rounded-lg border border-white/30 bg-transparent p-4 text-sm text-white/90">
+                            <div className="rounded-lg border border-gray-300 bg-white p-4 text-sm text-gray-700 shadow-sm">
                                 <div>
-                                    <div className="font-medium text-white">Email</div>
-                                    <a href="mailto:support@fixit.com" className="text-blue-300 hover:underline">support@fixit.com</a>
+                                    <div className="font-medium text-gray-900">Email</div>
+                                    <a href="mailto:support@fixit.com" className="text-blue-600 hover:underline">support@fixit.com</a>
                                 </div>
                                 <div className="mt-3">
-                                    <div className="font-medium text-white">Address</div>
-                                    <p>Sibalom, Antique</p>
+                                    <div className="font-medium text-gray-900">Address</div>
+                                    <p className="text-gray-700">Sibalom, Antique</p>
                                 </div>
                             </div>
                         </div>
