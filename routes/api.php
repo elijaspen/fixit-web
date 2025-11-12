@@ -8,8 +8,26 @@ use App\Http\Controllers\Auth\TechnicianAuthController;
 use App\Http\Controllers\Settings\TechnicianProfileController;
 use App\Http\Controllers\Chat\ConversationController;
 use App\Http\Controllers\TechnicianController;
+use App\Http\Controllers\ServiceRequestController; // Ensure this is imported
 
 Route::middleware(['web'])->group(function () {
+
+    // --- NEW FIX: CUSTOMER APPROVAL ROUTE ADDED ---
+    
+    // 1. CUSTOMER: Create the new service request (amount=0) - Called by MessagesPage.tsx
+    Route::post('customer/service-requests', [ServiceRequestController::class, 'storeCustomerRequest'])
+        ->middleware(['auth:customer']);
+    
+    // 2. TECHNICIAN: Route for setting the price/fee (Edit Details button) - Called by TechnicianServiceRequests.tsx
+    Route::patch('service-requests/{serviceRequest}/edit-details', [ServiceRequestController::class, 'editDetails'])
+        ->middleware(['auth:technician']);
+        
+    // 3. CUSTOMER: Route for approving the quote (links to handleCustomerApproval frontend)
+    Route::patch('service-requests/{serviceRequest}/approve', [ServiceRequestController::class, 'customerApproveQuote'])
+        ->middleware(['auth:customer']);
+
+    // -------------------------------------------------------------
+
     // Admin routes
     Route::prefix('admin')->middleware('auth:admin')->group(function () {
         Route::get('technicians', [\App\Http\Controllers\Admin\TechnicianController::class, 'index']);
@@ -58,59 +76,47 @@ Route::middleware(['web'])->group(function () {
         Route::get('technicians/{technician}/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndex']);
     });
 
-    // Conversations & messages
-    Route::middleware(['auth:customer,technician'])->group(function () {
-        Route::get('conversations', [ConversationController::class, 'index']);
-        Route::post('conversations', [ConversationController::class, 'createOrFetch']);
-        // More specific routes first (with /messages, /typing, /read)
-        Route::get('conversations/{conversation}/messages', [ConversationController::class, 'messages']);
-        Route::post('conversations/{conversation}/messages', [ConversationController::class, 'send']);
-        Route::post('conversations/{conversation}/typing', [ConversationController::class, 'typing']);
-        Route::post('conversations/{conversation}/read', [ConversationController::class, 'read']);
-        Route::get('conversations/{conversation}/service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'forConversation']);
-        // Less specific route last (single conversation by ID)
-        Route::get('conversations/{id}', [ConversationController::class, 'show']);
+    // Conversations & messages block has been REMOVED from this file.
+
+    // Service requests
+    Route::middleware(['auth:customer'])->group(function () {
+        // NOTE: The request-creation POST route below is the OLD one.
+        // The new frontend uses the specific '/customer/service-requests' route defined above.
+        Route::post('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'create']); 
+        // Customer reviews
+        Route::post('technicians/{technician}/reviews', [\App\Http\Controllers\ReviewController::class, 'upsert']);
+        Route::get('technicians/{technician}/reviews/mine', [\App\Http\Controllers\ReviewController::class, 'mine']);
     });
-
-        // Service requests
-        Route::middleware(['auth:customer'])->group(function () {
-            Route::post('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'create']);
-            // Customer reviews
-            Route::post('technicians/{technician}/reviews', [\App\Http\Controllers\ReviewController::class, 'upsert']);
-            Route::get('technicians/{technician}/reviews/mine', [\App\Http\Controllers\ReviewController::class, 'mine']);
-        });
-        
-        Route::middleware(['auth:technician'])->group(function () {
-            // Technician can create service requests (for receipt generation on dashboard)
-            Route::post('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'create']);
-            Route::get('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'index']);
-            Route::patch('service-requests/{serviceRequest}/status', [\App\Http\Controllers\ServiceRequestController::class, 'updateStatus']);
-            // Technician marks service request as completed
-            Route::patch('service-requests/{serviceRequest}/complete', [\App\Http\Controllers\ServiceRequestController::class, 'complete']);
-            // Technician sets customer payment (cash/gcash) status/method
-            Route::patch('service-requests/{serviceRequest}/customer-payment', [\App\Http\Controllers\ServiceRequestController::class, 'updateCustomerPayment']);
-            // Technician pays booking fee (method/reference)
-            Route::post('service-requests/{serviceRequest}/booking-fee/pay', [\App\Http\Controllers\ServiceRequestController::class, 'payBookingFee']);
-            // Technician edits receipt items/notes/total
-            Route::patch('service-requests/{serviceRequest}/receipt', [\App\Http\Controllers\ServiceRequestController::class, 'updateReceipt']);
-            // Technician reviews listing (their own)
-            Route::get('reviews', [\App\Http\Controllers\ReviewController::class, 'listMine']);
-            // Technician upserts weekly availability
-            Route::post('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'upsert']);
-            // Technician views weekly availability (self)
-            Route::get('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'indexMe']);
-            // Technician views monthly availability (self)
-            Route::get('technicians/me/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndexMe']);
-        });
-        
-        Route::middleware(['auth:customer,technician,admin'])->group(function () {
-            // Backward-compat: keep generic payment update if used elsewhere
-            Route::patch('service-requests/{serviceRequest}/payment', [\App\Http\Controllers\ServiceRequestController::class, 'updatePayment']);
-            // Upload receipt attachments (tech/customer/admin)
-            Route::post('service-requests/{serviceRequest}/receipts', [\App\Http\Controllers\ServiceRequestController::class, 'uploadReceipts']);
-            // Remove a specific receipt attachment (tech/customer/admin)
-            Route::delete('service-requests/{serviceRequest}/receipts', [\App\Http\Controllers\ServiceRequestController::class, 'removeReceipt']);
-        });
+    
+    Route::middleware(['auth:technician'])->group(function () {
+        // Technician can create service requests (for receipt generation on dashboard)
+        Route::post('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'create']);
+        Route::get('service-requests', [\App\Http\Controllers\ServiceRequestController::class, 'index']);
+        Route::patch('service-requests/{serviceRequest}/status', [\App\Http\Controllers\ServiceRequestController::class, 'updateStatus']);
+        // Technician marks service request as completed
+        Route::patch('service-requests/{serviceRequest}/complete', [\App\Http\Controllers\ServiceRequestController::class, 'complete']);
+        // Technician sets customer payment (cash/gcash) status/method
+        Route::patch('service-requests/{serviceRequest}/customer-payment', [\App\Http\Controllers\ServiceRequestController::class, 'updateCustomerPayment']);
+        // Technician pays booking fee (method/reference)
+        Route::post('service-requests/{serviceRequest}/booking-fee/pay', [\App\Http\Controllers\ServiceRequestController::class, 'payBookingFee']);
+        // Technician edits receipt items/notes/total
+        Route::patch('service-requests/{serviceRequest}/receipt', [\App\Http\Controllers\ServiceRequestController::class, 'updateReceipt']);
+        // Technician reviews listing (their own)
+        Route::get('reviews', [\App\Http\Controllers\ReviewController::class, 'listMine']);
+        // Technician upserts weekly availability
+        Route::post('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'upsert']);
+        // Technician views weekly availability (self)
+        Route::get('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'indexMe']);
+        // Technician views monthly availability (self)
+        Route::get('technicians/me/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndexMe']);
+    });
+    
+    Route::middleware(['auth:customer,technician,admin'])->group(function () {
+        // Backward-compat: keep generic payment update if used elsewhere
+        Route::patch('service-requests/{serviceRequest}/payment', [\App\Http\Controllers\ServiceRequestController::class, 'updatePayment']);
+        // Upload receipt attachments (tech/customer/admin)
+        Route::post('service-requests/{serviceRequest}/receipts', [\App\Http\Controllers\ServiceRequestController::class, 'uploadReceipts']);
+        // Remove a specific receipt attachment (tech/customer/admin)
+        Route::delete('service-requests/{serviceRequest}/receipts', [\App\Http\Controllers\ServiceRequestController::class, 'removeReceipt']);
+    });
 });
-
-

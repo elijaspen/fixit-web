@@ -1,22 +1,21 @@
 import AppLayout from '@/layouts/app-layout'
 import { Head, usePage } from '@inertiajs/react'
 import { type BreadcrumbItem, type SharedData } from '@/types'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { echo } from '@/echo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
-// Select components removed from this view for a simplified professional flow
 import axios from '@/axios-config'
-import { Paperclip, X as XIcon } from 'lucide-react'
+import { Paperclip, X as XIcon, FileText, Send, Plus } from 'lucide-react'
 
-const breadcrumbs: BreadcrumbItem[] = [
-    {
-        title: 'Messages',
-        href: '/messages',
-    },
-]
+// --- Interfaces ---
+interface ReceiptItem {
+    desc: string
+    qty: number
+    unit_price: number
+}
 
 interface Conversation {
     id: number
@@ -24,8 +23,8 @@ interface Conversation {
     technician_id?: number
     customer?: { name: string }
     technician?: { name: string }
+    unread_count?: number
 }
-
 interface Technician {
     id: number
     name: string
@@ -34,9 +33,7 @@ interface Technician {
     premium_rate?: number | null
     base_pricing?: number | null
 }
-
 type PricingTier = 'normal' | 'standard' | 'advanced' | 'base'
-
 interface Message {
     id: number
     sender_type: string
@@ -44,38 +41,227 @@ interface Message {
     body: string
     attachments?: string[]
 }
-
 interface ServiceRequest {
     id: number
     rate_tier: string | null
     amount: number | string
-    status: string
-    payment_status: string
-    payment_method?: string | null
+    status: 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'awaiting_quote_approval'
+    payment_status: 'unpaid' | 'paid' | 'partially_paid' | 'refunded'
+    customer_payment_status?: 'unpaid' | 'paid' | 'partial'
+    customer_payment_method?: 'cash' | 'gcash' | 'other' | null
     booking_fee_status?: 'unpaid' | 'paid'
     booking_fee_total?: number | string
     booking_fee_complexity?: 'simple' | 'standard' | 'complex'
-    customer_payment_method?: 'cash' | 'gcash' | 'other' | null
-    customer_payment_status?: 'unpaid' | 'paid' | 'partial'
+    customer_notes?: string | null
+    technician_notes?: string | null
+    service_date?: string | null
+    created_at: string
     receipt_items?: Array<{ desc: string; qty: number; unit_price: number }>
     receipt_notes?: string | null
     receipt_attachments?: string[]
     created_at: string
 }
 
+const breadcrumbs: BreadcrumbItem[] = [
+    {
+        title: 'Messages',
+        href: '/messages',
+    },
+]
+
 function formatCurrency(value: number | string | null | undefined): string {
     const n = Number(value ?? 0)
     return n.toFixed(2)
 }
 
-// html2canvas removed from this view; PNG export no longer supported here
+// Custom hook to fetch and update service request state
+const useServiceRequestUpdater = (active: Conversation | null, setServiceRequest: (sr: ServiceRequest | null) => void) => {
+    return useCallback(async () => {
+        if (!active?.id) return
+        try {
+            const r = await axios.get(`/api/conversations/${active.id}/service-requests`)
+            const requests: ServiceRequest[] = r.data
+            if (requests.length > 0) {
+                const activeRequest = requests.find(sr => ['pending', 'awaiting_quote_approval', 'confirmed', 'in_progress'].includes(sr.status)) || requests[0]
+                setServiceRequest(activeRequest)
+            } else {
+                setServiceRequest(null)
+            }
+        } catch (e) {
+            console.error('Error fetching service requests:', e)
+            setServiceRequest(null)
+        }
+    }, [active, setServiceRequest])
+}
+
+// --- START: CUSTOMER MODAL COMPONENT (MOVED TO TOP TO FIX REFERENCE ERROR) ---
+
+interface CreateRequestModalProps {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    technicianId: number
+    onSuccess: () => void // Callback to refresh the service request state
+}
+
+function CreateRequestModal({ open, onOpenChange, technicianId, onSuccess }: CreateRequestModalProps) {
+    const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([{ desc: '', qty: 1, unit_price: 0 }])
+    const [notes, setNotes] = useState('')
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+
+    const isItemListValid = receiptItems.some(it => it.desc.trim().length > 0 && Number(it.qty) > 0)
+    
+    const handleSubmit = async () => {
+        if (!isItemListValid) {
+            setError('Please describe the required service in at least one item and set a quantity greater than zero.')
+            return
+        }
+        
+        setLoading(true)
+        setError(null)
+        
+        const validItems = receiptItems.filter(it => it.desc.trim() && Number(it.qty) > 0)
+
+        try {
+            await axios.post('/api/customer/service-requests', {
+                technician_id: technicianId,
+                receipt_items: validItems, 
+                customer_notes: notes || undefined,
+            })
+            
+            onSuccess() 
+            onOpenChange(false)
+            setNotes('')
+            setReceiptItems([{ desc: '', qty: 1, unit_price: 0 }]) 
+            alert('Service Request Submitted! The technician will send you an estimate shortly.')
+            
+        } catch (err: any) {
+            console.error('Service Request Submission Error:', err)
+            
+            let msg = 'Submission failed. Please check the console for validation details.';
+            
+            // DETAILED ERROR HANDLING FOR 422
+            if (err.response && err.response.status === 422 && err.response.data && err.response.data.errors) {
+                const errors = err.response.data.errors;
+                const firstErrorKey = Object.keys(errors)[0];
+                if (firstErrorKey) {
+                    msg = `Validation Error on '${firstErrorKey}': ${errors[firstErrorKey][0]}`;
+                }
+            } else if (err.response && err.response.data && err.response.data.message) {
+                 msg = err.response.data.message;
+            }
+
+            setError(msg);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    return (
+        <Dialog open={open} onOpenChange={(open) => {
+            if (!open) { setNotes(''); setError(null); setReceiptItems([{ desc: '', qty: 1, unit_price: 0 }]) } 
+            onOpenChange(open)
+        }}>
+            <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle>Create Service Request</DialogTitle>
+                    <DialogDescription>
+                        List the items or services you require. The technician will use this to issue an estimate.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                    
+                    {/* Item Input Grid */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Items/Services Required</label>
+                        <div className="grid grid-cols-10 gap-2 text-xs font-medium text-neutral-500">
+                            <div className="col-span-8">Description</div>
+                            <div className="col-span-2">Qty</div>
+                        </div>
+                        {receiptItems.map((it, idx) => (
+                            <div key={idx} className="grid grid-cols-10 gap-2 items-center">
+                                {/* Description Input */}
+                                <Input 
+                                    className="col-span-8" 
+                                    placeholder="e.g., AC Unit Diagnostic Fee" 
+                                    value={it.desc} 
+                                    onChange={(e) => {
+                                        const arr = [...receiptItems]
+                                        arr[idx] = { ...arr[idx], desc: e.target.value, unit_price: 0 }
+                                        setReceiptItems(arr)
+                                    }} 
+                                />
+                                {/* Quantity Input */}
+                                <Input 
+                                    className="col-span-2" 
+                                    type="number" 
+                                    min={1} 
+                                    value={it.qty} 
+                                    onChange={(e) => {
+                                        const arr = [...receiptItems]
+                                        arr[idx] = { ...arr[idx], qty: Number(e.target.value) || 1, unit_price: 0 }
+                                        setReceiptItems(arr)
+                                    }} 
+                                />
+                            </div>
+                        ))}
+                        <div className="flex gap-2">
+                            <Button 
+                                size="sm" 
+                                variant="outline" 
+                                onClick={() => setReceiptItems((a) => [...a, { desc: '', qty: 1, unit_price: 0 }])}
+                            >
+                                <Plus className="h-4 w-4 mr-1" /> Add item
+                            </Button>
+                            {receiptItems.length > 1 && (
+                                <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    onClick={() => setReceiptItems((a) => a.slice(0, -1))}
+                                >
+                                    Remove last
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* General Notes Field */}
+                    <div>
+                        <label htmlFor="customer-notes" className="text-sm font-medium">Additional Notes (Location, Time preference, etc.)</label>
+                        <textarea
+                            id="customer-notes"
+                            placeholder="e.g., The leak is coming from the left side. I am available after 5 PM."
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            rows={3}
+                            className="mt-1 w-full rounded-md border bg-background p-2 text-sm"
+                        />
+                    </div>
+                    {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+                        Cancel
+                    </Button>
+                    <Button onClick={handleSubmit} disabled={loading || !isItemListValid}>
+                        <FileText className="h-4 w-4 mr-1" />
+                        {loading ? 'Submitting...' : 'Submit Request'}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
+// --- END: CUSTOMER MODAL COMPONENT ---
+
 
 export default function MessagesPage() {
     const page = usePage<SharedData>()
     const role = (page.props && (page.props as unknown as { auth?: { role?: string } }).auth?.role) as string | undefined
     const isTechnician = role === 'technician'
-    // const isCustomer = role === 'customer'
-    // Role flags left in place for future use if needed
+    const isCustomer = role === 'customer' // Defined for clarity
+    
     const [conversations, setConversations] = useState<Conversation[]>([])
     const [active, setActive] = useState<Conversation | null>(null)
     const [messages, setMessages] = useState<Message[]>([])
@@ -85,7 +271,11 @@ export default function MessagesPage() {
     const [technician, setTechnician] = useState<Technician | null>(null)
     const [selectedRate, setSelectedRate] = useState<PricingTier | null>(null)
     const [serviceRequest, setServiceRequest] = useState<ServiceRequest | null>(null)
-    // booking flow removed
+    
+    // New state for customer flow
+    const [openCreateRequestModal, setOpenCreateRequestModal] = useState(false)
+    
+    // Existing states for Technician flow
     const [openReceiptModal, setOpenReceiptModal] = useState(false)
     const [editingReceipt, setEditingReceipt] = useState(false)
     const [receiptItems, setReceiptItems] = useState<Array<{ desc: string; qty: number; unit_price: number }>>([{ desc: '', qty: 1, unit_price: 0 }])
@@ -96,38 +286,89 @@ export default function MessagesPage() {
     const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null)
     const scrollRef = useRef<HTMLDivElement>(null)
 
+    const updateServiceRequest = useServiceRequestUpdater(active, setServiceRequest)
+
+    // --- CUSTOMER APPROVAL HANDLER ---
+    const handleCustomerApproval = async (requestId: number) => {
+        if (!confirm(`By approving, you accept the service price (₱${formatCurrency(serviceRequest?.amount)}) and agree to pay the non-refundable booking fee (₱${formatCurrency(serviceRequest?.booking_fee_total)}) to confirm the job. Continue?`)) {
+            return;
+        }
+        
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+        try {
+            // API CALLS THE NEW APPROVAL ROUTE (to set status to 'confirmed')
+            await axios.patch(`/api/service-requests/${requestId}/approve`, {
+                // Payment details would go here
+            }, {
+                headers: { 'X-CSRF-TOKEN': csrfToken || '' }
+            });
+            
+            // Update UI state
+            updateServiceRequest(); 
+            
+            alert('Quote Approved! The booking is now confirmed. The technician will receive the booking fee and can start service.');
+
+        } catch (error) {
+            console.error('Approval failed:', error);
+            alert('Failed to approve quote. Please ensure payment was successful.');
+        }
+    }
+    // --- END NEW LOGIC ---
+
+
+    // Dispatches unread count update
+    useEffect(() => {
+        if (!conversations) return;
+        try {
+            const total = conversations.reduce((s, c) => s + (c.unread_count || 0), 0);
+            window.dispatchEvent(new CustomEvent('unread:update', { detail: { total } }));
+        } catch (e) {
+            console.error("Failed to dispatch unread count", e);
+        }
+    }, [conversations]);
+
+    // Helpers for scroll stick-to-bottom behavior
+    const scrollToBottom = () => {
+        const el = scrollRef.current
+        if (!el) return
+        el.scrollTop = el.scrollHeight
+    }
+    const isNearBottom = () => {
+        const el = scrollRef.current
+        if (!el) return true
+        const threshold = 80 // px
+        return el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+    }
+
     useEffect(() => {
         axios.get('/api/conversations').then(r => {
             setConversations(r.data)
+            
             // Auto-select conversation from URL parameter if present
             const urlParams = new URLSearchParams(window.location.search)
             const conversationId = urlParams.get('conversation')
             if (conversationId) {
                 const found = r.data.find((c: Conversation) => c.id === Number(conversationId))
                 if (found) {
+                    setConversations(prev => prev.map(cc => cc.id === found.id ? { ...cc, unread_count: 0 } : cc))
                     setActive(found)
-                    // Clean up URL parameter
                     window.history.replaceState({}, '', '/messages')
                 } else {
-                    // If conversation not found (likely empty/new for customers), fetch it directly
                     axios.get(`/api/conversations/${conversationId}`)
                         .then(res => {
-                            // Add the conversation to the list even if it's empty
                             const newConv: Conversation = res.data
                             setConversations(prev => {
-                                // Check if already exists to avoid duplicates
                                 if (prev.find(c => c.id === newConv.id)) {
                                     return prev
                                 }
                                 return [newConv, ...prev]
                             })
                             setActive(newConv)
-                            // Clean up URL parameter
                             window.history.replaceState({}, '', '/messages')
                         })
                         .catch(err => {
                             console.error('Error fetching conversation:', err)
-                            // Clean up URL parameter even on error
                             window.history.replaceState({}, '', '/messages')
                         })
                 }
@@ -144,15 +385,15 @@ export default function MessagesPage() {
         // Fetch messages
         axios.get(`/api/conversations/${conversationId}/messages`).then(r => {
             setMessages(r.data as Message[])
-            setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: 'auto' }), 0)
+            requestAnimationFrame(() => scrollToBottom())
         })
         
-        // Fetch technician details if this is a customer-technician conversation
+        // Fetch Technician Details (if applicable)
         if (active.technician_id) {
             axios.get(`/api/technicians/${active.technician_id}`).then(r => {
                 const tech: Technician = r.data
                 setTechnician(tech)
-                // Auto-select first available rate
+                // Auto-select first available rate (kept for existing logic)
                 if (tech.standard_rate) {
                     setSelectedRate('normal')
                 } else if (tech.professional_rate) {
@@ -167,21 +408,10 @@ export default function MessagesPage() {
                 setTechnician(null)
             })
 
-            // Fetch service requests for this conversation
-            axios.get(`/api/conversations/${conversationId}/service-requests`).then(r => {
-                const requests: ServiceRequest[] = r.data
-                if (requests.length > 0) {
-                    // Get the most recent pending or active request
-                    const activeRequest = requests.find(sr => ['pending', 'confirmed', 'in_progress'].includes(sr.status)) || requests[0]
-                    setServiceRequest(activeRequest)
-                } else {
-                    setServiceRequest(null)
-                }
-            }).catch(() => {
-                // Ignore errors - service requests are optional
-            })
+            // Fetch service requests for this conversation using the custom hook
+            updateServiceRequest()
+
         } else {
-            // No technician
             Promise.resolve().then(() => {
                 setTechnician(null)
                 setServiceRequest(null)
@@ -190,15 +420,10 @@ export default function MessagesPage() {
         
         // mark as read on open
         const markRead = async () => {
-            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-            if (csrfToken) {
-                localStorage.setItem('csrf_token', csrfToken)
-            }
             try {
-                await axios.post(`/api/conversations/${conversationId}/read`, {}, {
-                    headers: {
-                        'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
-                    }
+                await axios.post(`/api/conversations/${conversationId}/read`);
+                setConversations(prev => {
+                    return prev.map(c => c.id === conversationId ? { ...c, unread_count: 0 } : c)
                 })
             } catch {
                 // Silently fail for read marks
@@ -207,14 +432,16 @@ export default function MessagesPage() {
         markRead()
         
         if (!echo) {
-            // Websocket not initialized; skip realtime but keep UI working
             return
         }
         
         const channel = echo.private(`conversation.${conversationId}`)
             .listen('MessageSent', (e: Message) => {
+                const shouldStick = isNearBottom()
                 setMessages(prev => [...prev, e])
-                setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: 'smooth' }), 50)
+                if (shouldStick) {
+                    setTimeout(() => scrollToBottom(), 0)
+                }
             })
             .listen('TypingStarted', () => {
                 setTyping(true)
@@ -227,23 +454,15 @@ export default function MessagesPage() {
             channel.stopListening('TypingStarted')
             echo.leave(`private-conversation.${conversationId}`)
         }
-    }, [active])
+    }, [active, updateServiceRequest])
 
     // Mark read on tab focus
     useEffect(() => {
         if (!active) return
         const conversationId = active.id
         const onFocus = async () => {
-            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-            if (csrfToken) {
-                localStorage.setItem('csrf_token', csrfToken)
-            }
             try {
-                await axios.post(`/api/conversations/${conversationId}/read`, {}, {
-                    headers: {
-                        'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
-                    }
-                })
+                await axios.post(`/api/conversations/${conversationId}/read`);
             } catch {
                 // Silently fail for read marks
             }
@@ -263,10 +482,10 @@ export default function MessagesPage() {
         setMessages(prev => [...prev, r.data as Message])
         setBody('')
         setPendingAttachments([])
-        setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: 'smooth' }), 50)
+        setTimeout(() => scrollToBottom(), 0)
     }
 
-    // Get available pricing tiers
+    // ... (availableTiers logic is fine) ...
     const availableTiers: Array<{ value: PricingTier; label: string; rate: number }> = []
     if (technician) {
         if (technician.standard_rate) {
@@ -292,11 +511,12 @@ export default function MessagesPage() {
         }
     }
 
-    // Booking flow removed from chat for simplified professional view
+    // Helper to check if a service request needs a quote or is active
+    const isServiceRequestActive = (sr: ServiceRequest | null) => {
+        if (!sr) return false;
+        return ['pending', 'awaiting_quote_approval', 'confirmed', 'in_progress'].includes(sr.status);
+    }
 
-    // Payment update button removed from chat
-
-    // Booking fee action removed from chat
 
     return (
         <>
@@ -320,17 +540,33 @@ export default function MessagesPage() {
                                 conversations.map((c) => (
                                     <button
                                         key={c.id}
-                                        onClick={() => setActive(c)}
+                                        onClick={async () => {
+                                            setConversations(prev => prev.map(cc => cc.id === c.id ? { ...cc, unread_count: 0 } : cc))
+                                            setActive(c)
+                                            try {
+                                                await axios.post(`/api/conversations/${c.id}/read`)
+                                                const r = await axios.get('/api/conversations')
+                                                setConversations(r.data)
+                                            } catch {
+                                                // ignore network/CSRF hiccups; UI is already optimistic
+                                            }
+                                        }}
                                         className={`w-full rounded-lg p-3 text-left transition-colors ${
                                             active?.id === c.id
                                                 ? 'bg-primary text-primary-foreground'
                                                 : 'bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700'
                                         }`}
                                     >
-                                        <div className="text-sm font-semibold">
-                                            {isTechnician ? (c.customer?.name || 'Customer') : (c.technician?.name || 'Technician')}
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="min-w-0 text-sm font-semibold">
+                                                {isTechnician ? (c.customer?.name || 'Customer') : (c.technician?.name || 'Technician')}
+                                            </div>
+                                            {!!(c.unread_count && c.unread_count > 0) && (
+                                                <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] leading-5 text-white">
+                                                    {c.unread_count > 9 ? '9+' : c.unread_count}
+                                                </span>
+                                            )}
                                         </div>
-                                        {/* Removed conversation id subtitle for cleaner UI */}
                                     </button>
                                 ))
                             )}
@@ -347,23 +583,63 @@ export default function MessagesPage() {
                                                 {isTechnician ? (active.customer?.name || 'Customer') : (active.technician?.name || 'Technician')}
                                             </h2>
                                         </div>
+                                        {/* CUSTOMER ACTION: CREATE SERVICE REQUEST BUTTON */}
+                                        {isCustomer && active?.technician_id && !isServiceRequestActive(serviceRequest) && (
+                                            <Button 
+                                                size="sm" 
+                                                variant="default" 
+                                                className="whitespace-nowrap bg-blue-600 hover:bg-blue-700 gap-1"
+                                                onClick={() => setOpenCreateRequestModal(true)}
+                                            >
+                                                <FileText className="h-4 w-4" />
+                                                Create Service Request
+                                            </Button>
+                                        )}
                                     </div>
-                                    {/* Hiding quick-book panel for streamlined professional view */}
+                                    
+                                    {/* --- CUSTOMER APPROVAL/QUOTE DISPLAY --- */}
+                                    {isCustomer && serviceRequest && 
+                                        serviceRequest.status === 'awaiting_quote_approval' && (
+                                        
+                                        <Card className="m-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-700">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <h3 className="text-lg font-bold text-yellow-900 dark:text-yellow-200">
+                                                        Quote Awaiting Your Approval
+                                                    </h3>
+                                                    <p className="mt-1 text-sm text-yellow-800 dark:text-yellow-300">
+                                                        Service Price: ₱{formatCurrency(serviceRequest.amount)}
+                                                    </p>
+                                                    <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">
+                                                        Required Booking Fee: ₱{formatCurrency(serviceRequest.booking_fee_total)}
+                                                    </p>
+                                                </div>
+
+                                                <Button 
+                                                    className="mt-3 bg-green-600 hover:bg-green-700 gap-2"
+                                                    onClick={() => handleCustomerApproval(serviceRequest.id)}
+                                                >
+                                                    <Send className="h-4 w-4" />
+                                                    Approve Quote & Pay Fee
+                                                </Button>
+                                            </div>
+                                        </Card>
+                                    )}
+                                    {/* --- END CUSTOMER APPROVAL/QUOTE DISPLAY --- */}
+
                                     {serviceRequest && (
                                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                                             <div className="text-xs text-neutral-600">
-                                                {/* Details hidden for minimal professional view */}
+                                                {/* Status/Amount display here */}
                                             </div>
                                             <div className="ml-auto flex flex-wrap items-center gap-2">
                                                 {isTechnician && serviceRequest.receipt_items && serviceRequest.receipt_items.length > 0 && (
                                                     <Button 
                                                         onClick={() => {
                                                             setEditingReceipt(true)
-                                                            // Prefill from existing receipt
                                                             const items = serviceRequest?.receipt_items ?? [{ desc: '', qty: 1, unit_price: 0 }]
                                                             setReceiptItems(items.map(i => ({ desc: i.desc, qty: Number(i.qty||0), unit_price: Number(i.unit_price||0) })))
                                                             setReceiptNotes(serviceRequest?.receipt_notes ?? '')
-                                                            // Prefill booking fee complexity
                                                             setFeeComplexity((serviceRequest?.booking_fee_complexity || 'standard') as 'simple' | 'standard' | 'complex')
                                                             setOpenReceiptModal(true)
                                                         }}
@@ -374,6 +650,7 @@ export default function MessagesPage() {
                                                         Edit Receipt
                                                     </Button>
                                                 )}
+                                                {/* ... (rest of the header actions like upload and view receipt) ... */}
                                                 {isTechnician && (
                                                     <>
                                                         <input
@@ -388,24 +665,12 @@ export default function MessagesPage() {
                                                                 const form = new FormData()
                                                                 Array.from(files).slice(0,5).forEach(f => form.append('files[]', f))
                                                                 try {
-                                                                    // Refresh CSRF token before request
-                                                                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-                                                                    if (csrfToken) {
-                                                                        localStorage.setItem('csrf_token', csrfToken)
-                                                                    }
                                                                     await axios.post(`/api/service-requests/${serviceRequest.id}/receipts`, form, { 
                                                                         headers: { 
                                                                             'Content-Type': 'multipart/form-data',
-                                                                            'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
                                                                         } 
                                                                     })
-                                                                    // Refresh SR
-                                                                    const r = await axios.get(`/api/conversations/${active?.id}/service-requests`)
-                                                                    const requests: ServiceRequest[] = r.data
-                                                                    if (requests.length > 0) {
-                                                                        const activeRequest = requests.find(sr => ['pending', 'confirmed', 'in_progress', 'completed'].includes(sr.status)) || requests[0]
-                                                                        setServiceRequest(activeRequest)
-                                                                    }
+                                                                    updateServiceRequest() // Refresh service request data
                                                                 } catch {
                                                                     alert('Failed to upload receipt(s)')
                                                                 } finally {
@@ -472,7 +737,6 @@ export default function MessagesPage() {
                                     )}
                                 </div>
                                 <div className="flex gap-2 border-t p-4">
-                                    {/* Upload screenshots: shown when a Service Request exists */}
                                     <input
                                         id="chat-upload-input"
                                         type="file"
@@ -520,7 +784,6 @@ export default function MessagesPage() {
                                     )}
                                     <Input
                                         ref={(input) => {
-                                            // Auto-focus input when conversation is selected and it's newly created
                                             if (input && active) {
                                                 const urlParams = new URLSearchParams(window.location.search)
                                                 if (urlParams.get('conversation')) {
@@ -560,7 +823,18 @@ export default function MessagesPage() {
             </div>
         </AppLayout>
 
-        {/* Edit Receipt Modal */}
+        {/* --- CUSTOMER: CREATE SERVICE REQUEST MODAL --- */}
+        {active?.technician_id && (
+            <CreateRequestModal
+                open={openCreateRequestModal}
+                onOpenChange={setOpenCreateRequestModal}
+                technicianId={active.technician_id}
+                onSuccess={updateServiceRequest}
+            />
+        )}
+
+
+        {/* --- TECHNICIAN: EDIT RECEIPT MODAL (Unchanged but remains for existing logic) --- */}
         <Dialog open={openReceiptModal} onOpenChange={(open) => {
             if (!open) setEditingReceipt(false)
             setOpenReceiptModal(open)
@@ -620,7 +894,7 @@ export default function MessagesPage() {
                         </div>
                     </div>
                     <div className="text-right text-sm font-medium">
-                        Total: ₱{receiptItems.reduce((sum, it) => sum + (Number(it.qty || 0) * Number(it.unit_price || 0)), 0).toFixed(2)}
+                        Total: ₱{receiptItems.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.unit_price || 0)), 0).toFixed(2)}
                     </div>
                 </div>
                 <DialogFooter>
@@ -628,28 +902,16 @@ export default function MessagesPage() {
                     <Button onClick={async () => {
                         if (!active || !serviceRequest) return
                         const total = receiptItems.reduce((sum, it) => sum + (Number(it.qty || 0) * Number(it.unit_price || 0)), 0)
-                        // simple client validation
                         if (total <= 0) { alert('Total must be greater than 0'); return }
                         if (receiptItems.some(it => !it.desc.trim())) { alert('Every item needs a description'); return }
                         try {
-                            // Refresh CSRF token before request
-                            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-                            if (csrfToken) {
-                                localStorage.setItem('csrf_token', csrfToken)
-                            }
-                            // Update existing receipt
                             const res = await axios.patch(`/api/service-requests/${serviceRequest.id}/receipt`, {
                                 receipt_items: receiptItems,
                                 receipt_total: total,
                                 receipt_notes: receiptNotes || undefined,
                                 booking_fee_complexity: feeComplexity,
-                            }, {
-                                headers: {
-                                    'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
-                                }
-                            })
+                            });
                             setServiceRequest(res.data.service_request)
-                            // Announce update
                             await axios.post(`/api/conversations/${active.id}/messages`, { body: `Receipt updated • New total ₱${total.toFixed(2)}` })
                             setOpenReceiptModal(false)
                             setReceiptItems([{ desc: '', qty: 1, unit_price: 0 }])
@@ -666,7 +928,7 @@ export default function MessagesPage() {
             </DialogContent>
         </Dialog>
 
-        {/* Image Viewer Modal */}
+        {/* Image Viewer Modal remains unchanged */}
         <Dialog open={!!imageViewerSrc} onOpenChange={(open) => !open && setImageViewerSrc(null)}>
             <DialogContent className="max-w-3xl">
                 <DialogHeader>
@@ -683,6 +945,7 @@ export default function MessagesPage() {
             </DialogContent>
         </Dialog>
 
+        {/* View Receipt Modal FIX APPLIED HERE */}
         <Dialog open={openViewReceipt} onOpenChange={setOpenViewReceipt}>
             <DialogContent>
                 <DialogHeader>
@@ -690,7 +953,6 @@ export default function MessagesPage() {
                     <DialogDescription>View the official receipt for this service request.</DialogDescription>
                 </DialogHeader>
                 <div ref={receiptRef} className="space-y-4 text-sm">
-                    {/* Header */}
                     <div className="flex items-start justify-between">
                         <div>
                             <div className="text-lg font-semibold">FixIt Services</div>
@@ -701,8 +963,6 @@ export default function MessagesPage() {
                             <div>Date: {serviceRequest ? new Date(serviceRequest.created_at).toLocaleDateString() : '-'}</div>
                         </div>
                     </div>
-
-                    {/* Parties */}
                     <div className="grid grid-cols-2 gap-4 text-xs">
                         <div>
                             <div className="font-medium">Billed To</div>
@@ -713,7 +973,6 @@ export default function MessagesPage() {
                             <div>{active?.technician?.name ?? 'Technician'}</div>
                         </div>
                     </div>
-
                     {serviceRequest?.receipt_items && serviceRequest.receipt_items.length > 0 ? (
                         <div className="border rounded-md">
                             <div className="grid grid-cols-12 gap-2 border-b bg-neutral-50 p-2 text-[11px] font-medium text-neutral-600">
@@ -726,7 +985,7 @@ export default function MessagesPage() {
                                     <div key={idx} className="grid grid-cols-12 gap-2 p-2">
                                         <div className="col-span-7">{it.desc}</div>
                                         <div className="col-span-2 text-right">{Number(it.qty || 0)}</div>
-                                        <div className="col-span-3 text-right">₱{(Number(it.qty || 0) * Number(it.unit_price || 0)).toFixed(2)}</div>
+                                        <div className="col-span-3 text-right">₱{(Number(it.unit_price || 0)).toFixed(2)}</div>
                                     </div>
                                 ))}
                             </div>
@@ -734,15 +993,12 @@ export default function MessagesPage() {
                     ) : (
                         <div className="text-muted-foreground">No items.</div>
                     )}
-
                     {serviceRequest?.receipt_notes && (
                         <div>
                             <div className="text-xs font-medium text-neutral-600">Notes</div>
                             <div className="text-neutral-700">{serviceRequest.receipt_notes}</div>
                         </div>
                     )}
-
-                    {/* Totals */}
                     <div className="ml-auto w-full max-w-sm space-y-1 text-sm">
                         <div className="flex justify-between">
                             <div className="text-neutral-600">Booking Fee</div>
@@ -753,7 +1009,6 @@ export default function MessagesPage() {
                             <div>₱{formatCurrency((Number(serviceRequest?.amount ?? 0)) + (Number(serviceRequest?.booking_fee_total ?? 0)))}</div>
                         </div>
                     </div>
-
                     <div data-noexport="1" className="space-y-2">
                         <div className="flex items-center justify-between">
                             <div className="text-xs font-medium text-neutral-600">Attachments</div>
@@ -772,25 +1027,12 @@ export default function MessagesPage() {
                                             const form = new FormData()
                                             Array.from(files).slice(0,5).forEach(f => form.append('files[]', f))
                                             try {
-                                                // Refresh CSRF token before request
-                                                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-                                                if (csrfToken) {
-                                                    localStorage.setItem('csrf_token', csrfToken)
-                                                }
                                                 await axios.post(`/api/service-requests/${serviceRequest.id}/receipts`, form, { 
                                                     headers: { 
                                                         'Content-Type': 'multipart/form-data',
-                                                        'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
                                                     } 
                                                 })
-                                                // Refresh SR to show newly uploaded attachments
-                                                axios.get(`/api/conversations/${active?.id}/service-requests`).then(r => {
-                                                    const requests: ServiceRequest[] = r.data
-                                                    if (requests.length > 0) {
-                                                        const activeRequest = requests.find(sr => ['pending', 'confirmed', 'in_progress', 'completed'].includes(sr.status)) || requests[0]
-                                                        setServiceRequest(activeRequest)
-                                                    }
-                                                })
+                                                updateServiceRequest() // Refresh service request data
                                             } catch {
                                                 alert('Failed to upload receipt(s)')
                                             } finally {
@@ -807,11 +1049,9 @@ export default function MessagesPage() {
                         {serviceRequest?.receipt_attachments && serviceRequest.receipt_attachments.length > 0 ? (
                             <div className="grid grid-cols-2 gap-2">
                                 {serviceRequest.receipt_attachments.map((att: string | { path: string; uploaded_by_type?: string }, i: number) => {
-                                    // Handle both old format (string) and new format (object)
                                     const path = typeof att === 'string' ? att : att.path
                                     const uploadedByType = typeof att === 'object' ? (att.uploaded_by_type || 'technician') : 'technician'
                                     const isPdf = path.toLowerCase().endsWith('.pdf')
-                                    // Technicians can remove their own uploads, customers can remove theirs
                                     const canRemove = isTechnician && uploadedByType === 'technician'
                                     return (
                                         <div key={i} className="border rounded p-2 relative">
@@ -829,24 +1069,8 @@ export default function MessagesPage() {
                                                     title="Remove attachment"
                                                     onClick={async () => {
                                                         try {
-                                                            // Refresh CSRF token before request
-                                                            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-                                                            if (csrfToken) {
-                                                                localStorage.setItem('csrf_token', csrfToken)
-                                                            }
-                                                            // Send path as query parameter for DELETE requests
-                                                            await axios.delete(`/api/service-requests/${serviceRequest.id}/receipts?path=${encodeURIComponent(path)}`, {
-                                                                headers: {
-                                                                    'X-CSRF-TOKEN': csrfToken || localStorage.getItem('csrf_token') || ''
-                                                                }
-                                                            })
-                                                            // refresh by refetching SR list
-                                                            const r = await axios.get(`/api/conversations/${active?.id}/service-requests`)
-                                                            const requests: ServiceRequest[] = r.data
-                                                            if (requests.length > 0) {
-                                                                const activeRequest = requests.find(sr => ['pending', 'confirmed', 'in_progress', 'completed'].includes(sr.status)) || requests[0]
-                                                                setServiceRequest(activeRequest)
-                                                            }
+                                                            await axios.delete(`/api/service-requests/${serviceRequest.id}/receipts?path=${encodeURIComponent(path)}`);
+                                                            updateServiceRequest() // Refresh service request data
                                                         } catch {
                                                             alert('Failed to remove attachment')
                                                         }
@@ -872,5 +1096,3 @@ export default function MessagesPage() {
         </>
     )
 }
-
-

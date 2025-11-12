@@ -13,19 +13,42 @@ use App\Models\Technician;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Database\Eloquent\Builder;
 
 class ConversationController extends Controller
 {
     public function index(Request $request)
     {
-        $user = $request->user() ?? $request->user('customer') ?? $request->user('technician');
-        $isTechnician = method_exists($user, 'isTechnician') && $user->isTechnician();
+        // Be explicit about guard: technicians and customers only
+        $technician = $request->user('technician');
+        $customer = $request->user('customer');
+        if (!$technician && !$customer) {
+            return response()->json([], 200);
+        }
+        $user = $technician ?: $customer;
+        $isTechnician = (bool) $technician;
+        $readerType = $isTechnician ? Technician::class : \App\Models\Customer::class;
         
         $query = Conversation::query()
             ->with(['customer:id,first_name,last_name', 'technician:id,first_name,last_name'])
-            ->when($isTechnician, 
-                fn($q) => $q->where('technician_id', $user->id)->whereHas('messages'), // Technicians only see conversations with messages
-                fn($q) => $q->where('customer_id', $user->id) // Customers see all their conversations (including empty ones they initiated)
+            ->withCount([
+                'messages as unread_count' => function (Builder $q) use ($user, $readerType) {
+                    // Messages not from me
+                    $q->where(function (Builder $m) use ($user) {
+                        $m->where('sender_type', '!=', get_class($user))
+                          ->orWhere('sender_id', '!=', $user->id);
+                    })
+                    // And I don't have a read receipt for them
+                    ->whereRaw(
+                        'NOT EXISTS (select 1 from message_read_receipts mrr where mrr.message_id = messages.id and mrr.reader_type = ? and mrr.reader_id = ?)',
+                        [$readerType, $user->id]
+                    );
+                }
+            ])
+            ->when(
+                $isTechnician,
+                fn($q) => $q->where('technician_id', $user->id), // Technicians see all their conversations (including empty)
+                fn($q) => $q->where('customer_id', $user->id) // Customers see all their conversations (including empty)
             )
             ->orderByDesc('last_message_at')
             ->orderByDesc('created_at') // Fallback to creation time for empty conversations

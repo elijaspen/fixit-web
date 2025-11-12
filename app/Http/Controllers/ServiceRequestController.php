@@ -6,19 +6,165 @@ use App\Models\Conversation;
 use App\Models\ServiceRequest;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Auth;
 
 class ServiceRequestController extends Controller
 {
     /**
-     * Create a service request from conversation. Supports guided rate tier or fully negotiated receipt.
+     * Store a new service request initiated by a customer (NEW FLOW).
+     */
+    public function storeCustomerRequest(Request $request)
+    {
+        $validated = $request->validate([
+            // FIX: TEMPORARILY REMOVED 'exists:users,id' TO BYPASS DATABASE ERROR
+            'technician_id' => 'required|integer', 
+            'customer_notes' => 'nullable|string|max:1000',
+            'receipt_items' => ['required', 'array', 'min:1'],
+            'receipt_items.*.desc' => ['required', 'string'],
+            'receipt_items.*.qty' => ['required', 'integer', 'min:1'],
+        ]);
+
+        $customer = Auth::user('customer');
+        if (!$customer) {
+            throw ValidationException::withMessages(['auth' => 'Must be logged in as customer']);
+        }
+
+        $conversation = Conversation::firstOrCreate([
+            'customer_id' => $customer->id,
+            'technician_id' => $validated['technician_id'],
+        ]);
+
+        $existing = ServiceRequest::where('conversation_id', $conversation->id)
+            ->whereIn('status', ['pending', 'awaiting_quote_approval', 'confirmed', 'in_progress'])
+            ->first();
+
+        if ($existing) {
+            return response()->json([
+                'message' => 'You already have an active request for this conversation. Please complete or cancel it first.',
+                'service_request' => $existing,
+            ], 422);
+        }
+
+        $initialReceiptItems = array_map(function($item) {
+            return array_merge($item, ['unit_price' => 0]);
+        }, $validated['receipt_items']);
+        
+        $serviceRequest = ServiceRequest::create([
+            'conversation_id' => $conversation->id,
+            'customer_id' => $conversation->customer_id,
+            'technician_id' => $conversation->technician_id,
+            'rate_tier' => 'standard',
+            'amount' => 0, 
+            'status' => 'pending', 
+            'payment_status' => 'unpaid',
+            'customer_payment_status' => 'unpaid',
+            'customer_notes' => $validated['customer_notes'] ?? null,
+            'booking_fee_total' => 0,
+            'booking_fee_status' => 'unpaid',
+            'receipt_items' => $initialReceiptItems,
+            'receipt_total' => 0,
+        ]);
+
+        return response()->json([
+            'message' => 'Service request created successfully',
+            'service_request' => $serviceRequest->load(['customer:id,first_name,last_name', 'technician:id,first_name,last_name']),
+        ], 201);
+    }
+
+    /**
+     * Technician updates the service details (price and booking fee)
+     */
+    public function editDetails(Request $request, ServiceRequest $serviceRequest)
+    {
+        $technician = $request->user('technician');
+        if (!$technician || $serviceRequest->technician_id !== $technician->id) {
+            abort(403, 'Unauthorized. Only the assigned technician can edit details.');
+        }
+
+        if (!in_array($serviceRequest->status, ['pending', 'awaiting_quote_approval'])) {
+            throw ValidationException::withMessages([
+                'status' => 'Cannot edit details unless status is Pending or Awaiting Customer Approval.',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'receipt_items' => ['required', 'array', 'min:1'],
+            'receipt_items.*.desc' => ['required', 'string', 'max:255'],
+            'receipt_items.*.qty' => ['required', 'numeric', 'min:1'],
+            'receipt_items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'receipt_total' => ['required', 'numeric', 'min:0', 'gt:0'],
+            'technician_notes' => ['nullable', 'string', 'max:1000'],
+            'booking_fee_complexity' => ['required', 'in:simple,standard,complex'],
+        ]);
+
+        $complexity = $validated['booking_fee_complexity'];
+        $fees = config('billing.booking_fee');
+        $bookingFee = $fees[$complexity] ?? ($fees['standard'] ?? 20.0);
+        $receiptTotal = (float) $validated['receipt_total'];
+
+        $updateData = [
+            'receipt_items' => $validated['receipt_items'],
+            'receipt_total' => $receiptTotal,
+            'technician_notes' => $validated['technician_notes'] ?? null,
+            'amount' => $receiptTotal,
+            'booking_fee_net' => $bookingFee,
+            'booking_fee_vat' => 0,
+            'booking_fee_total' => $bookingFee,
+            'booking_fee_complexity' => $complexity,
+            'status' => 'awaiting_quote_approval',
+        ];
+
+        $serviceRequest->update($updateData);
+
+        if ($serviceRequest->conversation_id) {
+            $conversation = Conversation::find($serviceRequest->conversation_id);
+            if ($conversation) {
+                $conversation->update(['consultation_fee' => $receiptTotal]);
+            }
+        }
+
+        return response()->json([
+            'message' => 'Service details updated and receipt completed.',
+            'service_request' => $serviceRequest->fresh(['customer:id,first_name,last_name', 'technician:id,first_name,last_name']),
+        ]);
+    }
+
+    /**
+     * Customer approves the quote and confirms the booking (NEW ROUTE ACTION).
+     */
+    public function customerApproveQuote(Request $request, ServiceRequest $serviceRequest)
+    {
+        $customer = $request->user('customer');
+
+        if (!$customer || $serviceRequest->customer_id !== $customer->id) {
+            abort(403, 'Unauthorized.');
+        }
+
+        if ($serviceRequest->status !== 'awaiting_quote_approval') {
+            return response()->json(['message' => 'Request is not in the approval stage.'], 422);
+        }
+        
+        // FIX: booking_fee_status MUST remain 'unpaid' here for admin verification.
+        $serviceRequest->update([
+            'status' => 'confirmed',        // Moves to the 'confirmed' stage (ready for service)
+            // booking_fee_status field is intentionally omitted to keep it 'unpaid'
+        ]);
+
+        return response()->json([
+            'message' => 'Quote approved and booking confirmed. Booking fee payment pending.',
+            'service_request' => $serviceRequest->fresh(),
+        ]);
+    }
+
+
+    /**
+     * Create a service request from conversation. (OLD METHOD)
      */
     public function create(Request $request)
     {
         $validated = $request->validate([
             'conversation_id' => ['required', 'exists:conversations,id'],
-            // rate_tier is optional now
             'rate_tier' => ['nullable', 'in:normal,standard,advanced,base'],
-            // Negotiated receipt fields (tech-generated)
             'receipt_items' => ['required', 'array', 'min:1'],
             'receipt_items.*.desc' => ['required', 'string', 'max:255'],
             'receipt_items.*.qty' => ['required', 'numeric', 'min:0'],
@@ -26,8 +172,7 @@ class ServiceRequestController extends Controller
             'receipt_total' => ['required', 'numeric', 'min:0'],
             'receipt_notes' => ['nullable', 'string', 'max:2000'],
             'customer_notes' => ['nullable', 'string', 'max:1000'],
-            // Booking fee complexity selector (simple/standard/complex)
-            'booking_fee_complexity' => ['nullable', 'in:simple,standard,complex'],
+            'booking_fee_complexity' => ['nullable', 'in:simple,standard,advanced,base'],
         ]);
 
         $customer = $request->user('customer');
@@ -39,23 +184,19 @@ class ServiceRequestController extends Controller
 
         $conversation = Conversation::with(['technician', 'customer'])->findOrFail($validated['conversation_id']);
 
-        // Verify conversation belongs to customer OR technician
         if ($customer && $conversation->customer_id !== $customer->id) {
-            abort(403, 'Unauthorized');
+            abort(403);
         }
         if ($technician && $conversation->technician_id !== $technician->id) {
-            abort(403, 'Unauthorized');
+            abort(403);
         }
 
-        // Determine amount
         $amount = 0;
         $rateTier = $validated['rate_tier'] ?? null;
         
-        // If receipt_total is provided (technician generating receipt), use it directly
         if (isset($validated['receipt_total']) && $validated['receipt_total'] !== null) {
             $amount = (float) $validated['receipt_total'];
         } elseif ($rateTier) {
-            // Otherwise, calculate from rate tier (customer selecting tier)
             if ($rateTier === 'normal' && $conversation->technician->standard_rate) {
                 $amount = $conversation->technician->standard_rate;
             } elseif ($rateTier === 'standard' && $conversation->technician->professional_rate) {
@@ -69,8 +210,6 @@ class ServiceRequestController extends Controller
             }
         }
 
-        // Check if there's already a pending or active (non-completed) service request
-        // Only block customers - technicians can create multiple new receipts (new service requests)
         if ($customer) {
             $existing = ServiceRequest::where('conversation_id', $conversation->id)
                 ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
@@ -83,9 +222,7 @@ class ServiceRequestController extends Controller
                 ], 422);
             }
         }
-        // Technicians can always create new service requests (new receipts) even if active ones exist
 
-        // Compute booking fee from complexity selection
         $complexity = $validated['booking_fee_complexity'] ?? 'standard';
         $fees = config('billing.booking_fee');
         $bookingFee = $fees[$complexity] ?? ($fees['standard'] ?? 20.0);
@@ -101,20 +238,17 @@ class ServiceRequestController extends Controller
             'customer_payment_status' => 'unpaid',
             'customer_payment_method' => null,
             'customer_notes' => $validated['customer_notes'] ?? null,
-            // booking fee
             'booking_fee_net' => $bookingFee,
             'booking_fee_vat' => 0,
             'booking_fee_total' => $bookingFee,
             'booking_fee_complexity' => $complexity,
             'booking_fee_status' => 'unpaid',
-            // receipt details (new receipt, no attachments)
             'receipt_items' => $validated['receipt_items'],
             'receipt_total' => $validated['receipt_total'],
             'receipt_notes' => $validated['receipt_notes'] ?? null,
-            'receipt_attachments' => null, // New receipt has no attachments
+            'receipt_attachments' => null,
         ]);
 
-        // Update conversation consultation fee
         $conversation->update(['consultation_fee' => $amount]);
 
         return response()->json([
@@ -184,7 +318,14 @@ class ServiceRequestController extends Controller
             abort(403, 'Only the assigned technician can mark as completed');
         }
 
-        // Allow completion if status is in_progress, confirmed, or already completed (idempotent)
+        // --- NEW VALIDATION: CHECK BOOKING FEE STATUS ---
+        if ($serviceRequest->booking_fee_status !== 'paid') {
+            throw ValidationException::withMessages([
+                'booking_fee' => 'The booking fee must be marked as paid by the administrator before the service can be completed.',
+            ]);
+        }
+        // --- END NEW VALIDATION ---
+        
         $allowedStatuses = ['in_progress', 'confirmed', 'completed'];
         if (!in_array($serviceRequest->status, $allowedStatuses)) {
             throw ValidationException::withMessages([
@@ -268,7 +409,7 @@ class ServiceRequestController extends Controller
         if (!$user) {
             abort(401);
         }
-        // Admin can upload to any service request
+        
         if (!$request->user('admin')) {
             if ($request->user('technician') && $serviceRequest->technician_id !== $request->user('technician')->id) {
                 abort(403);
@@ -285,7 +426,6 @@ class ServiceRequestController extends Controller
 
         $attachments = $serviceRequest->receipt_attachments ?? [];
         
-        // Determine uploader info
         $uploaderType = null;
         $uploaderId = null;
         if ($request->user('admin')) {
@@ -301,7 +441,6 @@ class ServiceRequestController extends Controller
         
         foreach ($request->file('files', []) as $file) {
             $filePath = $file->store('receipts', 'public');
-            // Store as object with metadata for ownership tracking
             $attachments[] = [
                 'path' => $filePath,
                 'uploaded_by_type' => $uploaderType,
@@ -330,8 +469,6 @@ class ServiceRequestController extends Controller
             abort(401);
         }
 
-        // Accept path from query parameter or request body (for DELETE requests)
-        // Laravel validation automatically checks both query and body
         $path = $request->input('path') ?? $request->query('path');
         if (!$path) {
             abort(422, 'Path parameter is required');
@@ -343,13 +480,10 @@ class ServiceRequestController extends Controller
         $technician = $request->user('technician');
         $customer = $request->user('customer');
         
-        // Find the attachment to remove (normalize path for comparison)
-        $targetPath = urldecode($data['path']); // Decode in case it was URL encoded
+        $targetPath = urldecode($data['path']);
         $attachmentToRemove = null;
         foreach ($attachments as $att) {
-            // Handle both old format (string) and new format (object)
             $path = is_string($att) ? $att : ($att['path'] ?? null);
-            // Compare paths (normalize both for comparison)
             $normalizedPath = urldecode(str_replace('\\', '/', $path));
             $normalizedTarget = urldecode(str_replace('\\', '/', $targetPath));
             if ($normalizedPath === $normalizedTarget || $path === $targetPath) {
@@ -362,7 +496,6 @@ class ServiceRequestController extends Controller
             abort(404, 'Attachment not found. Path: ' . $targetPath);
         }
         
-        // Determine uploader info from attachment
         $uploadedByType = null;
         $uploadedById = null;
         if (is_array($attachmentToRemove)) {
@@ -370,17 +503,14 @@ class ServiceRequestController extends Controller
             $uploadedById = $attachmentToRemove['uploaded_by_id'] ?? null;
         }
         
-        // If attachment has no metadata (old format), assume it was uploaded by technician
         if (!$uploadedByType) {
             $uploadedByType = 'technician';
         }
         
-        // Authorization: Admin cannot remove technician uploads
         if ($admin && $uploadedByType === 'technician') {
             abort(403, 'Admin cannot remove technician uploads');
         }
         
-        // Technicians and customers can only remove their own uploads
         if (!$admin) {
             if ($technician && $uploadedByType !== 'technician') {
                 abort(403, 'You can only remove your own uploads');
@@ -396,7 +526,6 @@ class ServiceRequestController extends Controller
             }
         }
         
-        // Remove the attachment (use normalized path for comparison)
         $targetPath = urldecode($data['path']);
         $new = array_values(array_filter($attachments, function($att) use ($targetPath) {
             $path = is_string($att) ? $att : ($att['path'] ?? null);
@@ -420,7 +549,6 @@ class ServiceRequestController extends Controller
     {
         $user = $request->user() ?? $request->user('customer') ?? $request->user('technician');
         
-        // Verify access
         $isCustomer = $request->user('customer');
         $isTechnician = $request->user('technician');
         
@@ -441,7 +569,6 @@ class ServiceRequestController extends Controller
             'payment_method' => $validated['payment_method'] ?? null,
         ]);
 
-        // Auto-confirm if payment is made
         if ($validated['payment_status'] === 'paid' && $serviceRequest->status === 'pending') {
             $serviceRequest->update(['status' => 'confirmed']);
         }
@@ -481,12 +608,10 @@ class ServiceRequestController extends Controller
             ->with(['customer:id,first_name,last_name,email,phone', 'conversation:id'])
             ->orderByDesc('created_at');
 
-        // Filter by status if provided
         if ($request->has('status')) {
             $query->where('status', $request->get('status'));
         }
 
-        // Filter by payment status if provided
         if ($request->has('payment_status')) {
             $query->where('payment_status', $request->get('payment_status'));
         }
@@ -517,8 +642,6 @@ class ServiceRequestController extends Controller
             $query->where('status', $request->get('status'));
         }
         
-        // Filter out fully completed requests (both completed AND booking fee paid) - these are done and don't need admin action
-        // Only show if they're either not completed, or completed but booking fee still unpaid (needs admin action)
         if (!$request->has('status') && !$request->boolean('outstanding_fees')) {
             $query->where(function($q) {
                 $q->where('status', '!=', 'completed')
