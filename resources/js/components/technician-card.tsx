@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Star } from 'lucide-react'
-import { router, usePage } from '@inertiajs/react'
+import { Star, MapPin } from 'lucide-react'
+import { router } from '@inertiajs/react' 
 import axios from '@/axios-config'
 import {
     Tooltip,
@@ -24,66 +24,26 @@ interface TechnicianCardProps {
 }
 
 export function TechnicianCard({ technician, rating = 0, ratingCount = 0, onViewProfile }: TechnicianCardProps) {
-    const page = usePage()
     const handleMessage = async () => {
         try {
-            // Get CSRF token from Inertia props (most reliable) or meta tag
-            const csrfToken = (page.props as { csrf?: string })?.csrf || 
-                             document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
-                             localStorage.getItem('csrf_token')
+            // Your axios-config.ts will handle the CSRF token automatically.
+            // No manual headers or token-fetching needed.
+            const response = await axios.post('/api/conversations', { technician_id: technician.id });
             
-            // Update meta tag and localStorage if we got it from props
-            if (csrfToken && (page.props as { csrf?: string })?.csrf) {
-                const meta = document.querySelector('meta[name="csrf-token"]')
-                if (meta) {
-                    meta.setAttribute('content', csrfToken)
-                }
-                localStorage.setItem('csrf_token', csrfToken)
-            }
-            
-            // Axios interceptor should handle CSRF, but we'll also explicitly set it
-            const response = await axios.post('/api/conversations', { technician_id: technician.id }, {
-                headers: {
-                    'X-CSRF-TOKEN': csrfToken || ''
-                }
-            })
             // Redirect to messages with the conversation ID to auto-select it
             router.visit(`/messages?conversation=${response.data.id}`, { 
                 preserveScroll: false 
-            })
+            });
         } catch (error) {
-            console.error('Error creating conversation:', error)
-            const err = error as { response?: { status?: number; data?: { message?: string } } }
+            console.error('Error creating conversation:', error);
+            const err = error as { response?: { status?: number; data?: { message?: string } } };
+            
             if (err.response?.status === 419) {
-                // Try to get fresh token from Inertia props or meta tag and retry once
-                const freshToken = (page.props as { csrf?: string })?.csrf || 
-                                  document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-                if (freshToken) {
-                    try {
-                        // Update meta and localStorage
-                        const meta = document.querySelector('meta[name="csrf-token"]')
-                        if (meta) {
-                            meta.setAttribute('content', freshToken)
-                        }
-                        localStorage.setItem('csrf_token', freshToken)
-                        
-                        const retryResponse = await axios.post('/api/conversations', { technician_id: technician.id }, {
-                            headers: {
-                                'X-CSRF-TOKEN': freshToken
-                            }
-                        })
-                        router.visit(`/messages?conversation=${retryResponse.data.id}`, {
-                            preserveScroll: false
-                        })
-                        return
-                    } catch (retryErr) {
-                        alert('Session expired. Please refresh the page and try again.')
-                    }
-                } else {
-                    alert('Session expired. Please refresh the page and try again.')
-                }
+                // The token was invalid. This happens if the user was logged out
+                // or the login-page-fix (useForm) is not in place.
+                alert('Your session has expired. Please refresh the page and try again.');
             } else {
-                alert(err.response?.data?.message || 'Failed to create conversation. Please try again.')
+                alert(err.response?.data?.message || 'Failed to create conversation. Please try again.');
             }
         }
     }
@@ -104,6 +64,18 @@ export function TechnicianCard({ technician, rating = 0, ratingCount = 0, onView
                     <div>
                         <h3 className="text-lg font-semibold">{technician.name}</h3>
                         <p className="text-sm text-muted-foreground">{technician.expertise || 'Technician'}</p>
+
+                        {/* --- 5. LOCATION BLOCK ADDED HERE --- */}
+                        {technician.address && (
+                            <div className="flex items-center gap-1.5 pt-2 text-sm text-muted-foreground">
+                                <MapPin className="h-4 w-4 shrink-0" />
+                                <span className="truncate" title={technician.address}>
+                                    {technician.address}
+                                </span>
+                            </div>
+                        )}
+                        {/* --- END OF BLOCK --- */}
+
                     </div>
                     
                     {/* Star Rating */}
@@ -151,4 +123,3 @@ export function TechnicianCard({ technician, rating = 0, ratingCount = 0, onView
         </Card>
     )
 }
-
