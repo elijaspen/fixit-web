@@ -21,7 +21,7 @@ import {
 import { Star, Mail, MapPin, Calendar, DollarSign, Briefcase, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/axios-config'
-import { router, usePage } from '@inertiajs/react'
+import { router } from '@inertiajs/react' // 1. REMOVED usePage
 
 interface TechnicianProfileModalProps {
     technician: {
@@ -56,7 +56,7 @@ interface TechnicianProfileModalProps {
 type PricingTier = 'normal' | 'standard' | 'advanced' | 'base'
 
 export function TechnicianProfileModal({ technician, rating = 0, open, onOpenChange }: TechnicianProfileModalProps) {
-    const page = usePage()
+    // 2. REMOVED usePage
     const [showAvailability, setShowAvailability] = useState(false)
     const [month, setMonth] = useState<string>('') // YYYY-MM
     const [monthDays, setMonthDays] = useState<Array<{ date: string; status: 'available' | 'unavailable' }>>([])
@@ -206,67 +206,29 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
 
     if (!technician) return null
 
+    // 3. SIMPLIFIED handleMessage function
     const handleMessage = async () => {
+        if (!technician) return;
         try {
-            // Get CSRF token from Inertia props (most reliable) or meta tag
-            const csrfToken = (page.props as { csrf?: string })?.csrf || 
-                             document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
-                             localStorage.getItem('csrf_token')
+            // Your axios-config.ts will handle the CSRF token automatically.
+            // No manual headers or token-fetching needed.
+            const response = await axios.post('/api/conversations', { technician_id: technician.id });
             
-            // Update meta tag and localStorage if we got it from props
-            if (csrfToken && (page.props as { csrf?: string })?.csrf) {
-                const meta = document.querySelector('meta[name="csrf-token"]')
-                if (meta) {
-                    meta.setAttribute('content', csrfToken)
-                }
-                localStorage.setItem('csrf_token', csrfToken)
-            }
+            onOpenChange(false); // Close the modal
             
-            // Axios interceptor should handle CSRF, but we'll also explicitly set it
-            const response = await axios.post('/api/conversations', { technician_id: technician.id }, {
-                headers: {
-                    'X-CSRF-TOKEN': csrfToken || ''
-                }
-            })
-            onOpenChange(false)
             // Redirect to messages with the conversation ID to auto-select it
             router.visit(`/messages?conversation=${response.data.id}`, {
                 preserveScroll: false
-            })
+            });
         } catch (error) {
-            console.error('Error creating conversation:', error)
-            const err = error as { response?: { status?: number; data?: { message?: string } } }
+            console.error('Error creating conversation:', error);
+            const err = error as { response?: { status?: number; data?: { message?: string } } };
+            
             if (err.response?.status === 419) {
-                // Try to get fresh token from Inertia props or meta tag and retry once
-                const freshToken = (page.props as { csrf?: string })?.csrf || 
-                                  document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-                if (freshToken) {
-                    try {
-                        // Update meta and localStorage
-                        const meta = document.querySelector('meta[name="csrf-token"]')
-                        if (meta) {
-                            meta.setAttribute('content', freshToken)
-                        }
-                        localStorage.setItem('csrf_token', freshToken)
-                        
-                        const retryResponse = await axios.post('/api/conversations', { technician_id: technician.id }, {
-                            headers: {
-                                'X-CSRF-TOKEN': freshToken
-                            }
-                        })
-                        onOpenChange(false)
-                        router.visit(`/messages?conversation=${retryResponse.data.id}`, {
-                            preserveScroll: false
-                        })
-                        return
-                    } catch (retryErr) {
-                        alert('Session expired. Please refresh the page and try again.')
-                    }
-                } else {
-                    alert('Session expired. Please refresh the page and try again.')
-                }
+                // This error means the master token (from login) is invalid.
+                alert('Your session has expired. Please refresh the page and try again.');
             } else {
-                alert(err.response?.data?.message || 'Failed to create conversation. Please try again.')
+                alert(err.response?.data?.message || 'Failed to create conversation. Please try again.');
             }
         }
     }
@@ -339,6 +301,24 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                         </div>
                         {showAvailability && (
                             <div className="mt-4 p-4 bg-neutral-50 dark:bg-neutral-900 rounded-lg">
+                                
+                                {/* --- 4. CALENDAR LEGEND ADDED HERE --- */}
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mb-3">
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="h-4 w-4 rounded border border-green-300 bg-green-100"></div>
+                                        <span>Available</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="h-4 w-4 rounded border border-red-300 bg-red-100"></div>
+                                        <span>Unavailable</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="h-4 w-4 rounded border border-neutral-200 bg-neutral-100"></div>
+                                        <span>Past</span>
+                                    </div>
+                                </div>
+                                {/* --- END OF LEGEND --- */}
+
                                 <div className="flex items-center justify-between mb-3">
                                     <Button variant="ghost" size="icon" onClick={prevMonth} aria-label="Previous month">
                                         <ChevronLeft className="h-4 w-4" />
@@ -361,8 +341,10 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                                             const today = new Date()
                                             const isoToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
                                             const isToday = cell.key === isoToday
+                                            
+                                            // 5. Matched legend colors to calendar colors
                                             return (
-                                                <div key={cell.key} className={`rounded border p-2 text-center text-xs ${cell.disabled ? 'bg-neutral-50 text-neutral-400' : isAvailable ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'} ${isToday ? 'ring-2 ring-blue-400' : ''}`}>
+                                                <div key={cell.key} className={`rounded border p-2 text-center text-xs ${cell.disabled ? 'bg-neutral-100 border-neutral-200 text-neutral-400' : isAvailable ? 'bg-green-100 border-green-300 text-green-800' : 'bg-red-100 border-red-300 text-red-800'} ${isToday ? 'ring-2 ring-blue-400' : ''}`}>
                                                     <div className="font-medium">{cell.label}</div>
                                                 </div>
                                             )
@@ -562,6 +544,7 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                                     if (myRating === 0) return
                                     try {
                                         setSavingReview(true)
+                                        // This request correctly uses the axios interceptor
                                         await axios.post(`/api/technicians/${technician.id}/reviews`, { rating: myRating, comment: myComment || undefined })
                                         // Optionally show a toast; for now, simple alert
                                         alert('Review saved')
@@ -591,4 +574,3 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
         </Dialog>
     )
 }
-

@@ -63,6 +63,46 @@ interface AppHeaderProps {
 export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
     const page = usePage<SharedData>();
     const { auth } = page.props;
+    const initialUnread = (auth as any)?.unread_total ?? 0;
+    const [unreadTotal, setUnreadTotal] = useState<number>(initialUnread);
+    useEffect(() => {
+        const onUnread = (e: Event) => {
+            try {
+                const detail = (e as CustomEvent)?.detail as { total?: number }
+                if (typeof detail?.total === 'number') setUnreadTotal(detail.total)
+            } catch {}
+        }
+        window.addEventListener('unread:update', onUnread as EventListener)
+        return () => window.removeEventListener('unread:update', onUnread as EventListener)
+    }, [])
+
+    // Lightweight polling + visibility refresh to keep navbar unread in sync during navigation
+    useEffect(() => {
+        let stopped = false
+        const fetchUnread = async () => {
+            try {
+                const r = await axios.get('/api/conversations')
+                if (stopped) return
+                const total = Array.isArray(r.data) ? (r.data as any[]).reduce((s, c) => s + (Number(c.unread_count || 0)), 0) : 0
+                setUnreadTotal(total)
+            } catch {
+                // ignore
+            }
+        }
+        // Refresh when tab becomes visible
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') fetchUnread()
+        }
+        document.addEventListener('visibilitychange', onVisibility)
+        // Initial fetch and interval
+        fetchUnread()
+        const id = window.setInterval(fetchUnread, 20000) // 20s
+        return () => {
+            stopped = true
+            window.clearInterval(id)
+            document.removeEventListener('visibilitychange', onVisibility)
+        }
+    }, [])
     // Prefer already-available avatar from shared props to avoid flashes
     const initialAvatar = (auth.user as any)?.avatar
         ? (auth.user as any).avatar as string
@@ -123,21 +163,29 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                                 <div className="flex h-full flex-1 flex-col space-y-4 p-4">
                                     <div className="flex h-full flex-col justify-between text-sm">
                                         <div className="flex flex-col space-y-4">
-                                            {mainNavItems.map((item) => (
-                                                <Link
-                                                    key={item.title}
-                                                    href={item.href}
-                                                    className="flex items-center space-x-2 font-medium"
-                                                >
-                                                    {item.icon && (
-                                                        <Icon
-                                                            iconNode={item.icon}
-                                                            className="h-5 w-5"
-                                                        />
-                                                    )}
-                                                    <span>{item.title}</span>
-                                                </Link>
-                                            ))}
+                                            {mainNavItems.map((item) => {
+                                                const isMessages = item.title === 'Messages';
+                                                return (
+                                                    <Link
+                                                        key={item.title}
+                                                        href={item.href}
+                                                        className="relative flex items-center space-x-2 font-medium"
+                                                    >
+                                                        {item.icon && (
+                                                            <Icon
+                                                                iconNode={item.icon}
+                                                                className="h-5 w-5"
+                                                            />
+                                                        )}
+                                                        <span>{item.title}</span>
+                                                        {isMessages && unreadTotal > 0 && (
+                                                            <span className="ml-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] leading-5 text-white">
+                                                                {unreadTotal > 9 ? '9+' : unreadTotal}
+                                                            </span>
+                                                        )}
+                                                    </Link>
+                                                )
+                                            })}
                                         </div>
 
                                         {/* Right-side external links removed */}
@@ -163,35 +211,43 @@ export function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
                     <div className="ml-6 hidden h-full items-center space-x-6 lg:flex">
                         <NavigationMenu className="flex h-full items-stretch">
                             <NavigationMenuList className="flex h-full items-stretch space-x-2">
-                                {mainNavItems.map((item, index) => (
-                                    <NavigationMenuItem
-                                        key={index}
-                                        className="relative flex h-full items-center"
-                                    >
-                                        <Link
-                                            href={item.href}
-                                            className={cn(
-                                                navigationMenuTriggerStyle(),
-                                                isSameUrl(
-                                                    page.url,
-                                                    item.href,
-                                                ) && activeItemStyles,
-                                                'h-9 cursor-pointer px-3',
-                                            )}
+                                {mainNavItems.map((item, index) => {
+                                    const isMessages = item.title === 'Messages';
+                                    return (
+                                        <NavigationMenuItem
+                                            key={index}
+                                            className="relative flex h-full items-center"
                                         >
-                                            {item.icon && (
-                                                <Icon
-                                                    iconNode={item.icon}
-                                                    className="mr-2 h-4 w-4"
-                                                />
+                                            <Link
+                                                href={item.href}
+                                                className={cn(
+                                                    navigationMenuTriggerStyle(),
+                                                    isSameUrl(
+                                                        page.url,
+                                                        item.href,
+                                                    ) && activeItemStyles,
+                                                    'relative h-9 cursor-pointer px-3',
+                                                )}
+                                            >
+                                                {item.icon && (
+                                                    <Icon
+                                                        iconNode={item.icon}
+                                                        className="mr-2 h-4 w-4"
+                                                    />
+                                                )}
+                                                {item.title}
+                                                {isMessages && unreadTotal > 0 && (
+                                                    <span className="absolute -right-2 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] leading-5 text-white">
+                                                        {unreadTotal > 9 ? '9+' : unreadTotal}
+                                                    </span>
+                                                )}
+                                            </Link>
+                                            {isSameUrl(page.url, item.href) && (
+                                                <div className="absolute bottom-0 left-0 h-0.5 w-full translate-y-px bg-black dark:bg-white"></div>
                                             )}
-                                            {item.title}
-                                        </Link>
-                                        {isSameUrl(page.url, item.href) && (
-                                            <div className="absolute bottom-0 left-0 h-0.5 w-full translate-y-px bg-black dark:bg-white"></div>
-                                        )}
-                                    </NavigationMenuItem>
-                                ))}
+                                        </NavigationMenuItem>
+                                    )
+                                })}
                             </NavigationMenuList>
                         </NavigationMenu>
                     </div>

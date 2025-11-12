@@ -12,23 +12,23 @@ import { type PropsWithChildren } from 'react';
 
 const getSidebarNavItems = (role?: string): NavItem[] => {
     const items: NavItem[] = [
-        {
-            title: 'Profile',
-            href: edit(),
-            icon: null,
-        },
-        {
-            title: 'Password',
-            href: editPassword(),
-            icon: null,
-        },
+    {
+        title: 'Profile',
+        href: edit(),
+        icon: null,
+    },
+    {
+        title: 'Password',
+        href: editPassword(),
+        icon: null,
+    },
         // Two-Factor removed
-        {
-            title: 'Appearance',
-            href: editAppearance(),
-            icon: null,
-        },
-    ];
+    {
+        title: 'Appearance',
+        href: editAppearance(),
+        icon: null,
+    },
+];
 
     // Add Credentials link for technicians only
     if (role === 'technician') {
