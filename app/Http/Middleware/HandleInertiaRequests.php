@@ -39,14 +39,49 @@ class HandleInertiaRequests extends Middleware
         [$message, $author] = str(Inspiring::quotes()->random())->explode('-');
 
         // Support multi-auth: customer, technician, admin
-        $user = $request->user() ?? $request->user('customer') ?? $request->user('technician') ?? $request->user('admin');
         $role = null;
+        $user = null;
         if ($request->user('customer')) {
             $role = 'customer';
+            $user = $request->user('customer');
         } elseif ($request->user('technician')) {
             $role = 'technician';
+            $user = $request->user('technician');
         } elseif ($request->user('admin')) {
             $role = 'admin';
+            $user = $request->user('admin');
+        }
+
+        // Compute unread total for navbar badge (technicians and customers)
+        $unreadTotal = 0;
+        try {
+            if ($user && in_array($role, ['customer', 'technician'], true)) {
+                $readerType = $role === 'technician' ? \App\Models\Technician::class : \App\Models\Customer::class;
+                $conversationIds = \App\Models\Conversation::query()
+                    ->when($role === 'technician',
+                        fn($q) => $q->where('technician_id', $user->id),
+                        fn($q) => $q->where('customer_id', $user->id)
+                    )
+                    ->pluck('id');
+                if ($conversationIds->isNotEmpty()) {
+                    $unreadTotal = \App\Models\Message::query()
+                        ->whereIn('conversation_id', $conversationIds)
+                        // exclude my own messages: NOT (sender_type = me AND sender_id = me)
+                        ->where(function ($q) use ($user) {
+                            $q->where('sender_type', '!=', get_class($user))
+                              ->orWhere('sender_id', '!=', $user->id);
+                        })
+                        // no read receipt by me
+                        ->whereRaw(
+                            'NOT EXISTS (select 1 from message_read_receipts mrr where mrr.message_id = messages.id and mrr.reader_type = ? and mrr.reader_id = ?)',
+                            [$readerType, $user->id]
+                        )
+                        ->count();
+                }
+            }
+        } catch (\Throwable $e) {
+            // Swallow errors to avoid breaking rendering
+            $unreadTotal = 0;
         }
 
         return [
@@ -56,6 +91,7 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $user,
                 'role' => $role,
+                'unread_total' => $unreadTotal,
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'csrf' => csrf_token(),

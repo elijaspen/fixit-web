@@ -6,17 +6,22 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Http\RedirectResponse;
 
 class UnifiedLoginController extends Controller
 {
-    public function __invoke(Request $request)
+    /**
+     * Handle an incoming authentication request.
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    public function __invoke(Request $request): RedirectResponse
     {
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
         ]);
 
-        // Try guards in order: customer, technician, admin
         $guards = [
             'customer' => 'customer',
             'technician' => 'technician',
@@ -26,10 +31,8 @@ class UnifiedLoginController extends Controller
         foreach ($guards as $guard) {
             if (Auth::guard($guard)->attempt($credentials, true)) {
                 $request->session()->regenerate();
-                return response()->json([
-                    'message' => 'Logged in',
-                    'role' => $guard,
-                ]);
+                
+                return redirect()->intended('/dashboard');
             }
         }
 
@@ -38,5 +41,3 @@ class UnifiedLoginController extends Controller
         ])->status(422);
     }
 }
-
-
