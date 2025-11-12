@@ -8,6 +8,11 @@ use App\Http\Controllers\Auth\CustomerAuthController;
 use App\Http\Controllers\Auth\TechnicianAuthController;
 use App\Http\Controllers\Auth\AdminAuthController;
 use App\Http\Controllers\Auth\LogoutController;
+use App\Http\Controllers\TechnicianAvailabilityController;
+use App\Http\Controllers\ProfileAvatarController;
+use App\Http\Controllers\AdminStatsController;
+use App\Http\Controllers\Chat\ConversationController;
+use App\Http\Controllers\ServiceRequestController; // Added for the conversation block
 
 Route::get('/', function () {
     return Inertia::render('welcome', [
@@ -104,22 +109,37 @@ Route::prefix('admin')->middleware('auth:admin')->group(function () {
 Route::prefix('api')->middleware(['web'])->group(function () {
     // Technician availability (session guard)
     Route::middleware('auth:technician')->group(function () {
-        Route::get('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'indexMe']);
-        Route::get('technicians/me/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndexMe']);
-        Route::post('technicians/me/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'upsert']);
+        Route::get('technicians/me/availability', [TechnicianAvailabilityController::class, 'indexMe']);
+        Route::get('technicians/me/availability/month', [TechnicianAvailabilityController::class, 'monthIndexMe']);
+        Route::post('technicians/me/availability', [TechnicianAvailabilityController::class, 'upsert']);
     });
 
     // Public-to-auth roles (customer/technician/admin) viewing a technician availability
     Route::middleware('auth:customer,technician,admin')->group(function () {
-        Route::get('technicians/{technician}/availability', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'index']);
-        Route::get('technicians/{technician}/availability/month', [\App\Http\Controllers\TechnicianAvailabilityController::class, 'monthIndex']);
+        Route::get('technicians/{technician}/availability', [TechnicianAvailabilityController::class, 'index']);
+        Route::get('technicians/{technician}/availability/month', [TechnicianAvailabilityController::class, 'monthIndex']);
         // Profile avatar upload (any role)
-        Route::post('profile/avatar', [\App\Http\Controllers\ProfileAvatarController::class, 'upload']);
+        Route::post('profile/avatar', [ProfileAvatarController::class, 'upload']);
         // Me endpoints by role (for client to fetch avatar without errors)
-        Route::get('customer/me', [\App\Http\Controllers\Auth\CustomerAuthController::class, 'me'])->middleware('auth:customer');
-        Route::get('technician/me', [\App\Http\Controllers\Auth\TechnicianAuthController::class, 'me'])->middleware('auth:technician');
-        Route::get('admin/me', [\App\Http\Controllers\Auth\AdminAuthController::class, 'me'])->middleware('auth:admin');
+        Route::get('customer/me', [CustomerAuthController::class, 'me'])->middleware('auth:customer');
+        Route::get('technician/me', [TechnicianAuthController::class, 'me'])->middleware('auth:technician');
+        Route::get('admin/me', [AdminAuthController::class, 'me'])->middleware('auth:admin');
         // Admin stats
-        Route::get('admin/stats', [\App\Http\Controllers\AdminStatsController::class, 'index'])->middleware('auth:admin');
+        Route::get('admin/stats', [AdminStatsController::class, 'index'])->middleware('auth:admin');
+    });
+
+    // --- 2. PASTE THE CONVERSATION ROUTES HERE ---
+    // Conversations & messages (now uses 'web' guards for session)
+    Route::middleware(['auth:customer,technician'])->group(function () {
+        Route::get('conversations', [ConversationController::class, 'index']);
+        Route::post('conversations', [ConversationController::class, 'createOrFetch']);
+        // More specific routes first (with /messages, /typing, /read)
+        Route::get('conversations/{conversation}/messages', [ConversationController::class, 'messages']);
+        Route::post('conversations/{conversation}/messages', [ConversationController::class, 'send']);
+        Route::post('conversations/{conversation}/typing', [ConversationController::class, 'typing']);
+        Route::post('conversations/{conversation}/read', [ConversationController::class, 'read']);
+        Route::get('conversations/{conversation}/service-requests', [ServiceRequestController::class, 'forConversation']);
+        // Less specific route last (single conversation by ID)
+        Route::get('conversations/{id}', [ConversationController::class, 'show']);
     });
 });
