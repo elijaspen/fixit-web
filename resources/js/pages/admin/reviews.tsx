@@ -1,12 +1,13 @@
 import AdminLayout from '@/layouts/admin-layout'
-import { Head } from '@inertiajs/react'
+import { dashboard } from '@/routes'
 import { type BreadcrumbItem } from '@/types'
-import { useEffect, useState } from 'react'
-import axios from '@/axios-config'
+import { Head, Link } from '@inertiajs/react'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { useEffect, useState, useMemo } from 'react' // 1. Imported useMemo
+import axios from '@/axios-config'
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -48,8 +49,24 @@ export default function AdminReviewsPage() {
             setLoading(false)
         }
     }
+    
+    // 2. Logic to check if filters are active
+    const isFilterActive = useMemo(() => {
+        const isTechnicianFiltered = technicianId.trim() !== '';
+        const isRatingFiltered = rating !== '' && rating !== 'all';
+        return isTechnicianFiltered || isRatingFiltered; // True if ANY filter is set
+    }, [technicianId, rating]);
 
-    useEffect(() => { load() }, [])
+    const clearFilters = () => {
+        setTechnicianId('')
+        setRating('')
+        // We call load() here to reset the view to the unfiltered state
+        load() 
+    }
+
+    useEffect(() => { 
+        load() 
+    }, []) // Only load on initial mount
 
     return (
         <AdminLayout breadcrumbs={breadcrumbs}>
@@ -75,7 +92,18 @@ export default function AdminReviewsPage() {
                                 ))}
                             </SelectContent>
                         </Select>
-                        <Button onClick={load}>Apply</Button>
+                        
+                        {/* 3. Apply button is now disabled if no filters are active */}
+                        <Button onClick={load} disabled={!isFilterActive}>
+                            Apply
+                        </Button>
+                        
+                        {/* 4. (Recommended) Added a Clear button */}
+                        {isFilterActive && (
+                            <Button variant="ghost" onClick={clearFilters}>
+                                Clear
+                            </Button>
+                        )}
                     </div>
                 </Card>
 
@@ -108,5 +136,3 @@ export default function AdminReviewsPage() {
         </AdminLayout>
     )
 }
-
-

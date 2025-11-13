@@ -4,15 +4,52 @@ namespace App\Http\Controllers;
 
 use App\Models\Review;
 use App\Models\Technician;
+use App\Models\ServiceRequest;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class ReviewController extends Controller
 {
+    /**
+     * Helper function to check if a customer has a completed service with a technician.
+     */
+    private function customerHasCompletedService(Technician $technician, $customer)
+    {
+        if (!$customer) {
+            return false;
+        }
+
+        return ServiceRequest::where('technician_id', $technician->id)
+            ->where('customer_id', $customer->id)
+            ->where('status', 'completed')
+            ->exists();
+    }
+
+    /**
+     * Check if the currently authenticated customer is allowed to rate this technician.
+     */
+    public function checkCanRate(Request $request, Technician $technician)
+    {
+        $customer = $request->user('customer');
+        
+        return response()->json([
+            'canRate' => $this->customerHasCompletedService($technician, $customer)
+        ]);
+    }
+
     // Create or update a customer's review for a technician
     public function upsert(Request $request, Technician $technician)
     {
         $customer = $request->user('customer');
         abort_unless($customer, 401);
+
+        // --- ADDED VALIDATION CHECK ---
+        // Check if the customer has a completed service with this technician
+        if (!$this->customerHasCompletedService($technician, $customer)) {
+            // Throw a 403 Forbidden error if they haven't
+            abort(403, 'You can only review a technician after completing a service with them.');
+        }
+        // --- END VALIDATION CHECK ---
 
         $data = $request->validate([
             'rating' => ['required', 'integer', 'min:1', 'max:5'],
@@ -103,5 +140,3 @@ class ReviewController extends Controller
         return response()->json($query->paginate(20));
     }
 }
-
-
