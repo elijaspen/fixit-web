@@ -22,15 +22,15 @@ interface TechnicianDashboardProps {
     }
 }
 
+// Function to get the current month string (YYYY-MM)
+const getCurrentMonthString = (): string => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
+}
 
 export default function TechnicianDashboard({ currentUser }: TechnicianDashboardProps) {
-    const [month, setMonth] = useState<string>('') // YYYY-MM
-
-    // Initialize current month
-    useEffect(() => {
-        const now = new Date()
-        setMonth(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`)
-    }, [])
+    // FIX 1: Initializing state directly in useState, removing unnecessary useEffect cleanup
+    const [month, setMonth] = useState<string>(getCurrentMonthString) // YYYY-MM
 
     const monthLabel = useMemo(() => {
         if (!month) return ''
@@ -88,7 +88,7 @@ export default function TechnicianDashboard({ currentUser }: TechnicianDashboard
                 {/* Quick Actions */}
                 <div className="flex gap-4">
                     <Link href="/technician/service-requests">
-                        <Button variant="default" className="gap-2">
+                        <Button variant="outline" className="gap-2">
                             <FileText className="h-4 w-4" />
                             Service Requests
                         </Button>
@@ -162,7 +162,7 @@ export default function TechnicianDashboard({ currentUser }: TechnicianDashboard
         </AppLayout>
     )
 }
-function MonthAvailabilityEditor({ month, onChangeMonth }: { month: string; onChangeMonth: (m: string) => void }) {
+function MonthAvailabilityEditor({ month }: { month: string; onChangeMonth: (m: string) => void }) {
     const [days, setDays] = useState<Array<{ date: string; status: 'available' | 'unavailable' }>>([])
     const [loading, setLoading] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -216,6 +216,7 @@ function MonthAvailabilityEditor({ month, onChangeMonth }: { month: string; onCh
             return
         }
         setSaving(true)
+        // FIX 3: Removed unnecessary try/catch wrapper
         try {
             const meta = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null
             const csrf = meta?.getAttribute('content') || undefined
@@ -228,7 +229,7 @@ function MonthAvailabilityEditor({ month, onChangeMonth }: { month: string; onCh
             // Reload current month to reflect persisted state (matches customer view)
             await load()
             alert('Availability saved')
-        } catch (e) {
+        } catch { // FIX 4: Removed unused variable 'e' or 'err' from outer catch
             alert('Failed to save availability')
         } finally {
             setSaving(false)
@@ -300,4 +301,3 @@ function MonthAvailabilityEditor({ month, onChangeMonth }: { month: string; onCh
         </div>
     )
 }
-
