@@ -1,14 +1,14 @@
 import AppLayout from '@/layouts/app-layout'
 import { dashboard } from '@/routes'
 import { type BreadcrumbItem } from '@/types'
-import { Head } from '@inertiajs/react'
+import { Head, Link } from '@inertiajs/react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import axios from '@/axios-config'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { TechnicianCard } from '@/components/technician-card'
 import { TechnicianProfileModal } from '@/components/technician-profile-modal'
-import { useEffect, useState, useCallback } from 'react'
-import axios from '@/axios-config'
+import { Input } from '@/components/ui/input'
 import { Search, MapPin, Star } from 'lucide-react'
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -36,6 +36,8 @@ interface Technician {
     license_image_path?: string | null
     certificates_image_path?: string | null
     created_at?: string
+    // Added avatar_path based on modal's needs
+    avatar_path?: string | null 
 }
 
 export default function CustomerDashboard() {
@@ -46,6 +48,9 @@ export default function CustomerDashboard() {
     const [searchQuery, setSearchQuery] = useState('')
     const [loading, setLoading] = useState(true)
     const [ratings, setRatings] = useState<Record<number, { average: number; count: number }>>({})
+    
+    // --- NEW: State to hold rating permission ---
+    const [canRateSelectedTechnician, setCanRateSelectedTechnician] = useState(false)
 
     useEffect(() => {
         loadTechnicians()
@@ -77,11 +82,12 @@ export default function CustomerDashboard() {
         try {
             setLoading(true)
             const response = await axios.get('/api/technicians')
-            setTechnicians(response.data || [])
-            setFilteredTechnicians(response.data || [])
+            const technicianData = response.data || []
+            setTechnicians(technicianData)
+            setFilteredTechnicians(technicianData)
+            
             // Fetch ratings summary in parallel
-            const list: Technician[] = response.data || []
-            const summaries = await Promise.all(list.map(async (t) => {
+            const summaries = await Promise.all(technicianData.map(async (t: Technician) => {
                 try {
                     const r = await axios.get(`/api/technicians/${t.id}/reviews/summary`)
                     return [t.id, { average: Number(r.data?.average || 0), count: Number(r.data?.count || 0) }] as const
@@ -102,19 +108,55 @@ export default function CustomerDashboard() {
         }
     }
 
+    // --- FIX: Updated function to check for rating permission ---
     const handleViewProfile = async (technicianId: number) => {
         try {
-            const response = await axios.get(`/api/technicians/${technicianId}`)
-            setSelectedTechnician(response.data)
-            setIsProfileModalOpen(true)
+            // Reset permission state on every open
+            setCanRateSelectedTechnician(false);
+
+            // Fetch profile and permission concurrently
+            const [profileRes, canRateRes] = await Promise.all([
+                axios.get(`/api/technicians/${technicianId}`),
+                axios.get(`/api/technicians/${technicianId}/can-rate`) // Calls the new endpoint
+            ]);
+
+            setSelectedTechnician(profileRes.data);
+            setCanRateSelectedTechnician(canRateRes.data.canRate); // Set state (true/false)
+            setIsProfileModalOpen(true);
+
         } catch (error) {
-            console.error('Error loading technician profile:', error)
+            console.error('Error loading technician profile or rating status:', error);
+            // Fallback: If permission check fails (e.g., 403), just load profile
+            try {
+                 const profileRes = await axios.get(`/api/technicians/${technicianId}`);
+                 setSelectedTechnician(profileRes.data);
+                 setIsProfileModalOpen(true);
+            } catch (e) {
+                 console.error('Failed to load technician profile:', e);
+            }
         }
     }
 
-    // Split technicians into nearby and popular (for now, just use all)
-    const nearbyTechnicians = filteredTechnicians.slice(0, 6)
-    const popularTechnicians = filteredTechnicians.slice(6, 12)
+    // --- FIX: Correctly derive nearby and popular technicians ---
+
+    // Nearby is just the first 6 results from the general filter
+    const nearbyTechnicians = useMemo(() => {
+        return filteredTechnicians.slice(0, 6)
+    }, [filteredTechnicians])
+
+    // Popular is sorted by rating and must have at least one rating
+    const popularTechnicians = useMemo(() => {
+        return filteredTechnicians
+            // 1. Filter to only those with ratings
+            .filter(tech => ratings[tech.id] && ratings[tech.id].count > 0)
+            // 2. Sort by average rating (highest first)
+            .sort((a, b) => (ratings[b.id]?.average || 0) - (ratings[a.id]?.average || 0))
+            // 3. Take the top 6
+            .slice(0, 6);
+    }, [filteredTechnicians, ratings])
+    
+    // --- END FIX ---
+
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -176,7 +218,7 @@ export default function CustomerDashboard() {
                         </div>
                     ) : (
                         <Card className="p-8 text-center">
-                            <p className="text-muted-foreground">No technicians found nearby</p>
+                            <p className="text-muted-foreground">No technicians found for your search</p>
                         </Card>
                     )}
                 </div>
@@ -209,13 +251,10 @@ export default function CustomerDashboard() {
                                 />
                             ))}
                         </div>
-                    ) : filteredTechnicians.length > 0 && nearbyTechnicians.length >= filteredTechnicians.length ? (
-                        <Card className="p-8 text-center">
-                            <p className="text-muted-foreground">All technicians shown above</p>
-                        </Card>
                     ) : (
+                        // FIX: Updated "No technicians" message
                         <Card className="p-8 text-center">
-                            <p className="text-muted-foreground">No technicians found</p>
+                            <p className="text-muted-foreground">No technicians with ratings found</p>
                         </Card>
                     )}
                 </div>
@@ -226,6 +265,7 @@ export default function CustomerDashboard() {
                     rating={selectedTechnician ? (ratings[selectedTechnician.id]?.average || 0) : 0}
                     open={isProfileModalOpen}
                     onOpenChange={setIsProfileModalOpen}
+                    canRate={canRateSelectedTechnician}
                 />
             </div>
         </AppLayout>
