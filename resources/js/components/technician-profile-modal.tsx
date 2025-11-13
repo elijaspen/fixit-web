@@ -21,7 +21,7 @@ import {
 import { Star, Mail, MapPin, Calendar, DollarSign, Briefcase, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from '@/axios-config'
-import { router } from '@inertiajs/react' // 1. REMOVED usePage
+import { router } from '@inertiajs/react'
 
 interface TechnicianProfileModalProps {
     technician: {
@@ -38,6 +38,7 @@ interface TechnicianProfileModalProps {
         availability_notes?: string | null
         license_image_path?: string | null
         certificates_image_path?: string | null
+        avatar_path?: string | null // Added avatar_path for the image
         components?: Array<{
             id: number
             component_name: string
@@ -51,12 +52,12 @@ interface TechnicianProfileModalProps {
     rating?: number
     open: boolean
     onOpenChange: (open: boolean) => void
+    canRate: boolean // Prop to control if rating is allowed
 }
 
 type PricingTier = 'normal' | 'standard' | 'advanced' | 'base'
 
-export function TechnicianProfileModal({ technician, rating = 0, open, onOpenChange }: TechnicianProfileModalProps) {
-    // 2. REMOVED usePage
+export function TechnicianProfileModal({ technician, rating = 0, open, onOpenChange, canRate }: TechnicianProfileModalProps) {
     const [showAvailability, setShowAvailability] = useState(false)
     const [month, setMonth] = useState<string>('') // YYYY-MM
     const [monthDays, setMonthDays] = useState<Array<{ date: string; status: 'available' | 'unavailable' }>>([])
@@ -67,9 +68,8 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
     const [savingReview, setSavingReview] = useState(false)
     const [hoverRating, setHoverRating] = useState<number | null>(null)
 
-    // Determine available pricing tiers (must be before any early returns)
+    // Determine available pricing tiers
     const availableTiers: Array<{ value: PricingTier; label: string; rate: number; description: string }> = []
-    
     if (technician) {
         if (technician.standard_rate) {
             availableTiers.push({
@@ -79,7 +79,6 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                 description: 'Fix includes: Screen protector installation, battery replacement, simple software updates, basic cleaning, charging port cleaning, and minor cosmetic repairs.'
             })
         }
-        
         if (technician.professional_rate) {
             availableTiers.push({
                 value: 'standard',
@@ -88,7 +87,6 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                 description: 'Fix includes: Screen replacement, LCD repair, camera module replacement, software troubleshooting and reinstallation, speaker replacement, and moderate hardware repairs.'
             })
         }
-        
         if (technician.premium_rate) {
             availableTiers.push({
                 value: 'advanced',
@@ -97,8 +95,6 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                 description: 'Fix includes: Motherboard repair, water damage recovery, advanced microsoldering, IC chip replacement, severe hardware damage repair, and complete device restoration.'
             })
         }
-
-        // If no tier rates but has base pricing
         if (availableTiers.length === 0 && technician.base_pricing) {
             availableTiers.push({
                 value: 'base',
@@ -109,32 +105,38 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
         }
     }
 
-    // Compute selected tier with a safe default without mutating state in effects
     const computedSelectedTier: PricingTier | undefined = selectedPricingTier || availableTiers[0]?.value
     const currentTier = computedSelectedTier ? availableTiers.find(t => t.value === computedSelectedTier) || null : null
 
     useEffect(() => {
         if (!open || !technician) return
-        // Prefill user's existing review if present
-        axios.get(`/api/technicians/${technician.id}/reviews/mine`).then(r => {
-            const rev = r.data as { rating?: number; comment?: string } | null
-            if (rev) {
-                setMyRating(rev.rating ?? 0)
-                setMyComment(rev.comment ?? '')
-            } else {
+        
+        // Only prefill review if user is allowed to rate
+        if (canRate) {
+            axios.get(`/api/technicians/${technician.id}/reviews/mine`).then(r => {
+                const rev = r.data as { rating?: number; comment?: string } | null
+                if (rev) {
+                    setMyRating(rev.rating ?? 0)
+                    setMyComment(rev.comment ?? '')
+                } else {
+                    setMyRating(0)
+                    setMyComment('')
+                }
+            }).catch(() => {
                 setMyRating(0)
                 setMyComment('')
-            }
-        }).catch(() => {
+            })
+        } else {
+            // If user can't rate, clear any potential stale rating state
             setMyRating(0)
             setMyComment('')
-        })
+        }
 
         // Initialize current month YYYY-MM
         const now = new Date()
         const yyyyMm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
         setMonth(yyyyMm)
-    }, [open, technician?.id])
+    }, [open, technician?.id, canRate]) // Added canRate dependency
 
     const loadAvailability = useCallback(async (yyyyMm: string) => {
         if (!technician) return
@@ -181,7 +183,7 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
         const startWeekday = (first.getDay() + 6) % 7 // make Monday=0
         const daysInMonth = new Date(y, m, 0).getDate()
         const cells: Array<{ key: string; label: string; status?: 'available'|'unavailable'; muted?: boolean; disabled?: boolean }> = []
-        // leading blanks for the first week
+        // leading blanks
         for (let i = 0; i < startWeekday; i++) {
             cells.push({ key: `blank-${i}`, label: '', muted: true })
         }
@@ -194,7 +196,7 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
             const isPast = iso < isoToday
             cells.push({ key: iso, label: String(day), status: record?.status || 'available', disabled: isPast })
         }
-        // trailing blanks to complete grid rows (optional)
+        // trailing blanks
         const remainder = cells.length % 7
         if (remainder !== 0) {
             for (let i = 0; i < 7 - remainder; i++) {
@@ -206,26 +208,18 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
 
     if (!technician) return null
 
-    // 3. SIMPLIFIED handleMessage function
     const handleMessage = async () => {
         if (!technician) return;
         try {
-            // Your axios-config.ts will handle the CSRF token automatically.
-            // No manual headers or token-fetching needed.
             const response = await axios.post('/api/conversations', { technician_id: technician.id });
-            
-            onOpenChange(false); // Close the modal
-            
-            // Redirect to messages with the conversation ID to auto-select it
+            onOpenChange(false); 
             router.visit(`/messages?conversation=${response.data.id}`, {
                 preserveScroll: false
             });
         } catch (error) {
             console.error('Error creating conversation:', error);
             const err = error as { response?: { status?: number; data?: { message?: string } } };
-            
             if (err.response?.status === 419) {
-                // This error means the master token (from login) is invalid.
                 alert('Your session has expired. Please refresh the page and try again.');
             } else {
                 alert(err.response?.data?.message || 'Failed to create conversation. Please try again.');
@@ -302,7 +296,6 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                         {showAvailability && (
                             <div className="mt-4 p-4 bg-neutral-50 dark:bg-neutral-900 rounded-lg">
                                 
-                                {/* --- 4. CALENDAR LEGEND ADDED HERE --- */}
                                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mb-3">
                                     <div className="flex items-center gap-1.5">
                                         <div className="h-4 w-4 rounded border border-green-300 bg-green-100"></div>
@@ -317,7 +310,6 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                                         <span>Past</span>
                                     </div>
                                 </div>
-                                {/* --- END OF LEGEND --- */}
 
                                 <div className="flex items-center justify-between mb-3">
                                     <Button variant="ghost" size="icon" onClick={prevMonth} aria-label="Previous month">
@@ -342,7 +334,6 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                                             const isoToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
                                             const isToday = cell.key === isoToday
                                             
-                                            // 5. Matched legend colors to calendar colors
                                             return (
                                                 <div key={cell.key} className={`rounded border p-2 text-center text-xs ${cell.disabled ? 'bg-neutral-100 border-neutral-200 text-neutral-400' : isAvailable ? 'bg-green-100 border-green-300 text-green-800' : 'bg-red-100 border-red-300 text-red-800'} ${isToday ? 'ring-2 ring-blue-400' : ''}`}>
                                                     <div className="font-medium">{cell.label}</div>
@@ -506,10 +497,18 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                         </div>
                     </div>
 
-                    {/* Rating & Review */}
+                    {/* --- FIX: RATING & REVIEW (Inputs disabled based on canRate) --- */}
                     <div className="border rounded-lg p-4">
                         <h3 className="font-semibold mb-3">Rate this technician</h3>
-                        <div className="flex items-center gap-2">
+                        
+                        {/* Show message if user cannot rate */}
+                        {!canRate && (
+                            <p className="text-sm text-muted-foreground mb-3">
+                                You must complete a service with this technician before you can leave a review.
+                            </p>
+                        )}
+
+                        <div className={`flex items-center gap-2 ${!canRate ? 'opacity-50' : ''}`}>
                             {[...Array(5)].map((_, i) => {
                                 const index = i + 1
                                 const filled = (hoverRating ?? myRating) >= index
@@ -517,11 +516,12 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                                     <button
                                         key={i}
                                         type="button"
-                                        className="p-0.5"
-                                        onMouseEnter={() => setHoverRating(index)}
+                                        className={`p-0.5 ${!canRate ? 'cursor-not-allowed' : ''}`}
+                                        onMouseEnter={() => canRate && setHoverRating(index)}
                                         onMouseLeave={() => setHoverRating(null)}
-                                        onClick={() => setMyRating(index)}
-                                        aria-label={`Rate ${index} star${index>1?'s':''}`}
+                                        onClick={() => canRate && setMyRating(index)}
+                                        disabled={!canRate} // Disable button
+                                        aria-label={`Rate ${index} star${index > 1 ? 's' : ''}`}
                                     >
                                         <Star className={`h-6 w-6 ${filled ? 'fill-yellow-400 text-yellow-400' : 'fill-none text-neutral-300'}`} />
                                     </button>
@@ -533,20 +533,19 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                             <textarea
                                 value={myComment}
                                 onChange={(e) => setMyComment(e.target.value)}
-                                placeholder="Write a short review (optional)"
+                                placeholder={canRate ? "Write a short review (optional)" : "Complete a service to leave a review"}
                                 className="w-full rounded-md border bg-background p-2 text-sm min-h-[80px]"
+                                disabled={!canRate} // Disable textarea
                             />
                         </div>
                         <div className="mt-3 flex justify-end">
                             <Button
-                                disabled={savingReview || myRating === 0}
+                                disabled={!canRate || savingReview || myRating === 0} // Disable if cannot rate
                                 onClick={async () => {
-                                    if (myRating === 0) return
+                                    if (myRating === 0 || !canRate) return
                                     try {
                                         setSavingReview(true)
-                                        // This request correctly uses the axios interceptor
                                         await axios.post(`/api/technicians/${technician.id}/reviews`, { rating: myRating, comment: myComment || undefined })
-                                        // Optionally show a toast; for now, simple alert
                                         alert('Review saved')
                                     } catch (e) {
                                         alert('Failed to save review')
@@ -559,6 +558,8 @@ export function TechnicianProfileModal({ technician, rating = 0, open, onOpenCha
                             </Button>
                         </div>
                     </div>
+                    {/* --- END FIX --- */}
+
 
                     {/* Action Button */}
                     <div className="flex justify-end gap-2 pt-4 border-t">
