@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import axios from '@/axios-config'
-import { Paperclip, X as XIcon, FileText, Send, Plus } from 'lucide-react'
+import { Paperclip, X as XIcon, FileText, Send, Plus, BadgeCheck } from 'lucide-react'
 
 // --- Interfaces ---
 interface ReceiptItem {
@@ -59,7 +59,6 @@ interface ServiceRequest {
     receipt_items?: Array<{ desc: string; qty: number; unit_price: number }>
     receipt_notes?: string | null
     receipt_attachments?: string[]
-    created_at: string
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -94,7 +93,7 @@ const useServiceRequestUpdater = (active: Conversation | null, setServiceRequest
     }, [active, setServiceRequest])
 }
 
-// --- START: CUSTOMER MODAL COMPONENT (MOVED TO TOP TO FIX REFERENCE ERROR) ---
+// --- START: CUSTOMER MODAL COMPONENT ---
 
 interface CreateRequestModalProps {
     open: boolean
@@ -281,6 +280,10 @@ export default function MessagesPage() {
     const [receiptItems, setReceiptItems] = useState<Array<{ desc: string; qty: number; unit_price: number }>>([{ desc: '', qty: 1, unit_price: 0 }])
     const [receiptNotes, setReceiptNotes] = useState('')
     const [feeComplexity, setFeeComplexity] = useState<'simple' | 'standard' | 'complex'>('standard')
+    
+    // --- NEW: State for Customer "View Details" Modal ---
+    const [openViewDetails, setOpenViewDetails] = useState(false)
+    
     const [openViewReceipt, setOpenViewReceipt] = useState(false)
     const receiptRef = useRef<HTMLDivElement>(null)
     const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null)
@@ -304,8 +307,9 @@ export default function MessagesPage() {
                 headers: { 'X-CSRF-TOKEN': csrfToken || '' }
             });
             
-            // Update UI state
+            // Refresh state to show 'Confirmed' status and hide approval button
             updateServiceRequest(); 
+            setOpenViewDetails(false) // Close the details modal
             
             alert('Quote Approved! The booking is now confirmed. The technician will receive the booking fee and can start service.');
 
@@ -525,7 +529,7 @@ export default function MessagesPage() {
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-6">
                 <div className="mb-4">
                     <h1 className="text-2xl font-semibold">Messages</h1>
-                    <p className="text-muted-foreground">Chat with technicians</p>
+                    <p className="text-muted-foreground">{isTechnician ? 'Chat with customers' : 'Chat with technicians'}</p>
                 </div>
                 
                 <div className="flex h-[calc(100vh-240px)] gap-4">
@@ -597,35 +601,7 @@ export default function MessagesPage() {
                                         )}
                                     </div>
                                     
-                                    {/* --- CUSTOMER APPROVAL/QUOTE DISPLAY --- */}
-                                    {isCustomer && serviceRequest && 
-                                        serviceRequest.status === 'awaiting_quote_approval' && (
-                                        
-                                        <Card className="m-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-700">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <h3 className="text-lg font-bold text-yellow-900 dark:text-yellow-200">
-                                                        Quote Awaiting Your Approval
-                                                    </h3>
-                                                    <p className="mt-1 text-sm text-yellow-800 dark:text-yellow-300">
-                                                        Service Price: ₱{formatCurrency(serviceRequest.amount)}
-                                                    </p>
-                                                    <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">
-                                                        Required Booking Fee: ₱{formatCurrency(serviceRequest.booking_fee_total)}
-                                                    </p>
-                                                </div>
-
-                                                <Button 
-                                                    className="mt-3 bg-green-600 hover:bg-green-700 gap-2"
-                                                    onClick={() => handleCustomerApproval(serviceRequest.id)}
-                                                >
-                                                    <Send className="h-4 w-4" />
-                                                    Approve Quote & Pay Fee
-                                                </Button>
-                                            </div>
-                                        </Card>
-                                    )}
-                                    {/* --- END CUSTOMER APPROVAL/QUOTE DISPLAY --- */}
+                                    {/* --- REMOVED CUSTOMER APPROVAL/QUOTE DISPLAY (MOVED TO MODAL) --- */}
 
                                     {serviceRequest && (
                                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
@@ -633,6 +609,7 @@ export default function MessagesPage() {
                                                 {/* Status/Amount display here */}
                                             </div>
                                             <div className="ml-auto flex flex-wrap items-center gap-2">
+                                                {/* --- TECHNICIAN ACTIONS --- */}
                                                 {isTechnician && serviceRequest.receipt_items && serviceRequest.receipt_items.length > 0 && (
                                                     <Button 
                                                         onClick={() => {
@@ -650,44 +627,29 @@ export default function MessagesPage() {
                                                         Edit Receipt
                                                     </Button>
                                                 )}
-                                                {/* ... (rest of the header actions like upload and view receipt) ... */}
-                                                {isTechnician && (
+                                                
+                                                {/* --- CUSTOMER ACTIONS --- */}
+                                                {isCustomer && serviceRequest && (
                                                     <>
-                                                        <input
-                                                            id={`header-receipt-upload-${serviceRequest.id}`}
-                                                            type="file"
-                                                            multiple
-                                                            accept=".jpg,.jpeg,.png,.pdf"
-                                                            style={{ display: 'none' }}
-                                                            onChange={async (e) => {
-                                                                const files = (e.currentTarget as HTMLInputElement).files
-                                                                if (!files || files.length === 0) return
-                                                                const form = new FormData()
-                                                                Array.from(files).slice(0,5).forEach(f => form.append('files[]', f))
-                                                                try {
-                                                                    await axios.post(`/api/service-requests/${serviceRequest.id}/receipts`, form, { 
-                                                                        headers: { 
-                                                                            'Content-Type': 'multipart/form-data',
-                                                                        } 
-                                                                    })
-                                                                    updateServiceRequest() // Refresh service request data
-                                                                } catch {
-                                                                    alert('Failed to upload receipt(s)')
-                                                                } finally {
-                                                                    (e.currentTarget as HTMLInputElement).value = ''
-                                                                }
-                                                            }}
-                                                        />
-                                                        <Button
+                                                        <Button 
+                                                            onClick={() => setOpenViewDetails(true)} 
                                                             size="sm"
-                                                            className="bg-emerald-600 text-white hover:bg-emerald-700"
-                                                            onClick={() => document.getElementById(`header-receipt-upload-${serviceRequest.id}`)?.click()}
+                                                            variant="outline"
                                                         >
-                                                            Upload receipt
+                                                            View Service Details
+                                                        </Button>
+                                                        <Button 
+                                                            onClick={() => setOpenViewReceipt(true)} 
+                                                            size="sm"
+                                                            className="bg-blue-600 text-white hover:bg-blue-700"
+                                                        >
+                                                            View Receipt
                                                         </Button>
                                                     </>
                                                 )}
-                                                {(serviceRequest.receipt_items && serviceRequest.receipt_items.length > 0) && (
+                                                
+                                                {/* --- TECHNICIAN VIEW RECEIPT (If items exist) --- */}
+                                                {isTechnician && (serviceRequest.receipt_items && serviceRequest.receipt_items.length > 0) && (
                                                     <Button 
                                                         onClick={() => setOpenViewReceipt(true)} 
                                                         size="sm"
@@ -832,9 +794,19 @@ export default function MessagesPage() {
                 onSuccess={updateServiceRequest}
             />
         )}
+        
+        {/* --- NEW: CUSTOMER VIEW DETAILS MODAL --- */}
+        {isCustomer && serviceRequest && (
+            <ViewRequestDetailsModal
+                serviceRequest={serviceRequest}
+                open={openViewDetails}
+                onOpenChange={setOpenViewDetails}
+                onApprove={handleCustomerApproval}
+            />
+        )}
 
 
-        {/* --- TECHNICIAN: EDIT RECEIPT MODAL (Unchanged but remains for existing logic) --- */}
+        {/* --- TECHNICIAN: EDIT RECEIPT MODAL (TOTALS FIXED) --- */}
         <Dialog open={openReceiptModal} onOpenChange={(open) => {
             if (!open) setEditingReceipt(false)
             setOpenReceiptModal(open)
@@ -893,8 +865,28 @@ export default function MessagesPage() {
                             <Button size="sm" variant={feeComplexity === 'complex' ? 'default' : 'outline'} onClick={() => setFeeComplexity('complex')}>Complex (₱40)</Button>
                         </div>
                     </div>
-                    <div className="text-right text-sm font-medium">
-                        Total: ₱{receiptItems.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.unit_price || 0)), 0).toFixed(2)}
+                    
+                    {/* --- FIX: UPDATED TOTALS SECTION IN EDIT MODAL --- */}
+                    <div className="pt-2 border-t space-y-1">
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>Service Subtotal:</span>
+                            <span className="font-medium">₱{formatCurrency(receiptItems.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.unit_price || 0)), 0))}</span>
+                        </div>
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>Booking Fee ({feeComplexity}):</span>
+                            <span className="font-medium">
+                                ₱{formatCurrency(feeComplexity === 'simple' ? 10 : feeComplexity === 'complex' ? 40 : 20)}
+                            </span>
+                        </div>
+                        <div className="flex justify-between text-lg font-bold border-t pt-2">
+                            <span>Total Payable:</span>
+                            <span>
+                                ₱{formatCurrency(
+                                    receiptItems.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.unit_price || 0)), 0) +
+                                    (feeComplexity === 'simple' ? 10 : feeComplexity === 'complex' ? 40 : 20)
+                                )}
+                            </span>
+                        </div>
                     </div>
                 </div>
                 <DialogFooter>
@@ -945,7 +937,7 @@ export default function MessagesPage() {
             </DialogContent>
         </Dialog>
 
-        {/* View Receipt Modal FIX APPLIED HERE */}
+        {/* View Receipt Modal (Used by both Customer and Technician) */}
         <Dialog open={openViewReceipt} onOpenChange={setOpenViewReceipt}>
             <DialogContent>
                 <DialogHeader>
@@ -1094,5 +1086,121 @@ export default function MessagesPage() {
             </DialogContent>
         </Dialog>
         </>
+    )
+}
+
+// --- NEW: CUSTOMER VIEW DETAILS MODAL ---
+// This component must be defined in the file scope to fix the ReferenceError
+
+// Helper function to get status text
+function getStatusLabel(status: ServiceRequest['status']) {
+    const statusMap: Record<string, { label: string; color: string }> = {
+        pending: { label: 'Pending Technician Estimate', color: 'text-gray-500' },
+        awaiting_quote_approval: { label: 'Awaiting Your Approval', color: 'text-blue-600' },
+        confirmed: { label: 'Confirmed & Awaiting Service', color: 'text-green-600' },
+        in_progress: { label: 'Service In Progress', color: 'text-green-700' },
+        completed: { label: 'Service Completed', color: 'text-gray-700' },
+        cancelled: { label: 'Cancelled', color: 'text-red-600' },
+    }
+    return statusMap[status] || { label: status, color: 'text-gray-500' };
+}
+
+interface ViewRequestDetailsModalProps {
+    serviceRequest: ServiceRequest
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    onApprove: (requestId: number) => void
+}
+
+function ViewRequestDetailsModal({ serviceRequest, open, onOpenChange, onApprove }: ViewRequestDetailsModalProps) {
+    const isAwaitingApproval = serviceRequest.status === 'awaiting_quote_approval';
+    const statusInfo = getStatusLabel(serviceRequest.status);
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Service Request Details (SR #{serviceRequest.id})</DialogTitle>
+                    <DialogDescription>
+                        Review the details, pricing, and status of your service request.
+                    </DialogDescription>
+                </DialogHeader>
+                
+                <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto">
+                    {/* Status Display */}
+                    <div className="p-3 rounded-md bg-neutral-50 dark:bg-neutral-900">
+                        <div className="text-sm font-medium">Status</div>
+                        <div className={`text-lg font-bold ${statusInfo.color}`}>
+                            {statusInfo.label}
+                        </div>
+                    </div>
+
+                    {/* Pricing Breakdown */}
+                    <div className="space-y-2">
+                        <h4 className="text-sm font-medium">Price Details</h4>
+                        <div className="p-3 rounded-md border">
+                            {Number(serviceRequest.amount) > 0 ? (
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">Service Amount:</span>
+                                        <span className="font-medium">₱{formatCurrency(serviceRequest.amount)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">Booking Fee:</span>
+                                        <span className="font-medium">₱{formatCurrency(serviceRequest.booking_fee_total)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-lg font-bold border-t pt-2 mt-2">
+                                        <span>Total Payable:</span>
+                                        <span>₱{formatCurrency(Number(serviceRequest.amount) + Number(serviceRequest.booking_fee_total || 0))}</span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-muted-foreground">Technician has not provided an estimate yet.</p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Item Breakdown */}
+                    <div className="space-y-2">
+                        <h4 className="text-sm font-medium">Requested Items</h4>
+                        {serviceRequest?.receipt_items && serviceRequest.receipt_items.length > 0 ? (
+                            <div className="border rounded-md">
+                                <div className="grid grid-cols-12 gap-2 border-b bg-neutral-50 dark:bg-neutral-900 p-2 text-xs font-medium text-neutral-600">
+                                    <div className="col-span-7">Description</div>
+                                    <div className="col-span-2 text-right">Qty</div>
+                                    <div className="col-span-3 text-right">Price</div>
+                                </div>
+                                <div className="divide-y">
+                                    {serviceRequest.receipt_items.map((it, idx) => (
+                                        <div key={idx} className="grid grid-cols-12 gap-2 p-2 text-sm">
+                                            <div className="col-span-7">{it.desc}</div>
+                                            <div className="col-span-2 text-right">{Number(it.qty || 0)}</div>
+                                            <div className="col-span-3 text-right">
+                                                {Number(it.unit_price) > 0 ? `₱${formatCurrency(it.unit_price)}` : 'TBD'}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">No items listed for this request.</p>
+                        )}
+                    </div>
+                </div>
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+                    {isAwaitingApproval && (
+                        <Button 
+                            className="bg-green-600 hover:bg-green-700 gap-2"
+                            onClick={() => onApprove(serviceRequest.id)}
+                        >
+                            <BadgeCheck className="h-4 w-4" />
+                            Approve Quote
+                        </Button>
+                    )}
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     )
 }
