@@ -535,7 +535,6 @@ function EditServiceDetailsModal({ request, open, onOpenChange, onDetailsSaved }
                 headers: { 'X-CSRF-TOKEN': csrfToken || '' }
             })
             
-            // Success
             onDetailsSaved()
             onOpenChange(false)
             alert(`Details saved for Request #${request.id}. Receipt complete. Awaiting customer approval.`)
